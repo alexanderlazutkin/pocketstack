@@ -1,0 +1,28 @@
+cubes:
+  - name: dim_order
+    sql: SELECT * FROM pocketstack.marts.dim_order
+    joins: []
+
+    dimensions:
+      - name: order_id
+        sql: order_id
+        type: number
+        primary_key: true
+      - name: order_key
+        sql: order_key
+        type: number
+      - name: order_status
+        sql: order_status
+        type: string
+      - name: order_priority
+        sql: order_priority
+        type: string
+      - name: clerk
+        sql: clerk
+        type: string
+      - name: order_date
+        sql: order_date
+        type: time
+      - name: total_price
+        sql: total_price
+        type: number

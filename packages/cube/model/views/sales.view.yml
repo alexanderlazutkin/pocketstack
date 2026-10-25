@@ -1,0 +1,28 @@
+views:
+  - name: sales
+    cubes:
+      - join_path: fact_sales
+        includes: "*"
+      - join_path: fact_sales.dim_customer
+        alias: customer
+        includes:
+          - customer_nation
+          - customer_region
+          - market_segment
+      - join_path: fact_sales.dim_part
+        alias: part
+        includes:
+          - brand
+          - manufacturer
+          - part_type
+      - join_path: fact_sales.dim_supplier
+        alias: supplier
+        includes:
+          - supplier_nation
+          - supplier_region
+      - join_path: fact_sales.dim_order
+        alias: order
+        includes:
+          - order_status
+          - order_priority
+          - order_date

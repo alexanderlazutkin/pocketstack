@@ -1,0 +1,14 @@
+{
+  "name": "cube",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "CUBEJS_DEV_MODE=true cubejs-server"
+  },
+  "template": "docker",
+  "templateVersion": "1.8.13",
+  "devDependencies": {
+    "@cubejs-backend/duckdb-driver": "^1.8.13",
+    "@cubejs-backend/server": "^1.8.13"
+  }
+}

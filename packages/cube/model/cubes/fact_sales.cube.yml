@@ -1,0 +1,68 @@
+cubes:
+  - name: fact_sales
+    sql: SELECT * FROM pocketstack.marts.fact_sales
+    joins:
+      - name: dim_customer
+        sql: "{CUBE}.customer_id = dim_customer.customer_id"
+        relationship: many_to_one
+      - name: dim_part
+        sql: "{CUBE}.part_id = dim_part.part_id"
+        relationship: many_to_one
+      - name: dim_supplier
+        sql: "{CUBE}.supplier_id = dim_supplier.supplier_id"
+        relationship: many_to_one
+      - name: dim_order
+        sql: "{CUBE}.order_id = dim_order.order_id"
+        relationship: many_to_one
+
+    measures:
+      - name: revenue
+        sql: net_price
+        type: sum
+        format: currency
+      - name: revenue_with_tax
+        sql: total_price_with_tax
+        type: sum
+        format: currency
+      - name: quantity
+        sql: quantity
+        type: sum
+      - name: lines_count
+        type: count
+      - name: orders_count
+        sql: order_id
+        type: count_distinct
+      - name: avg_discount
+        sql: discount
+        type: avg
+        format: percent
+
+    dimensions:
+      - name: line_key
+        sql: "{CUBE}.order_id * 100 + {CUBE}.line_number"
+        type: number
+        primary_key: true
+      - name: order_id
+        sql: order_id
+        type: number
+      - name: line_number
+        sql: line_number
+        type: number
+      - name: return_flag
+        sql: return_flag
+        type: string
+      - name: line_status
+        sql: line_status
+        type: string
+      - name: ship_mode
+        sql: ship_mode
+        type: string
+      - name: ship_date
+        sql: ship_date
+        type: time
+      - name: commit_date
+        sql: commit_date
+        type: time
+      - name: receipt_date
+        sql: receipt_date
+        type: time

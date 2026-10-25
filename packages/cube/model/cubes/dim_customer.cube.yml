@@ -1,0 +1,25 @@
+cubes:
+  - name: dim_customer
+    sql: SELECT * FROM pocketstack.marts.dim_customer
+    joins: []
+
+    dimensions:
+      - name: customer_id
+        sql: customer_id
+        type: number
+        primary_key: true
+      - name: customer_name
+        sql: customer_name
+        type: string
+      - name: customer_nation
+        sql: customer_nation
+        type: string
+      - name: customer_region
+        sql: customer_region
+        type: string
+      - name: market_segment
+        sql: market_segment
+        type: string
+      - name: customer_acct_balance
+        sql: customer_acct_balance
+        type: number

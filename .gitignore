@@ -22,6 +22,10 @@ warehouse/queries.log
 # node
 node_modules/
 
+# cube dev-кэши
+packages/cube/.cube/
+packages/cube/.cubestore/
+
 # evidence build cache
 packages/evidence/.evidence/
 

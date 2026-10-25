@@ -1,0 +1,22 @@
+cubes:
+  - name: dim_supplier
+    sql: SELECT * FROM pocketstack.marts.dim_supplier
+    joins: []
+
+    dimensions:
+      - name: supplier_id
+        sql: supplier_id
+        type: number
+        primary_key: true
+      - name: supplier_name
+        sql: supplier_name
+        type: string
+      - name: supplier_nation
+        sql: supplier_nation
+        type: string
+      - name: supplier_region
+        sql: supplier_region
+        type: string
+      - name: supplier_acct_balance
+        sql: supplier_acct_balance
+        type: number

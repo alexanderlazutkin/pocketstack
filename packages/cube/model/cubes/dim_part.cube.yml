@@ -1,0 +1,31 @@
+cubes:
+  - name: dim_part
+    sql: SELECT * FROM pocketstack.marts.dim_part
+    joins: []
+
+    dimensions:
+      - name: part_id
+        sql: part_id
+        type: number
+        primary_key: true
+      - name: part_name
+        sql: part_name
+        type: string
+      - name: manufacturer
+        sql: manufacturer
+        type: string
+      - name: brand
+        sql: brand
+        type: string
+      - name: part_type
+        sql: part_type
+        type: string
+      - name: part_size
+        sql: part_size
+        type: number
+      - name: part_container
+        sql: part_container
+        type: string
+      - name: part_retail_price
+        sql: part_retail_price
+        type: number
