@@ -14,6 +14,9 @@ cubes:
       - name: dim_order
         sql: "{CUBE}.order_id = dim_order.order_id"
         relationship: many_to_one
+      - name: dim_date
+        sql: "{CUBE}.ship_date = dim_date.date_day"
+        relationship: many_to_one
 
     measures:
       - name: revenue

@@ -1,0 +1,22 @@
+cubes:
+  - name: dim_date
+    sql: SELECT * FROM pocketstack.marts.dim_date
+    joins: []
+
+    dimensions:
+      - name: date_day
+        sql: date_day
+        type: time
+        primary_key: true
+      - name: year
+        sql: year
+        type: number
+      - name: quarter
+        sql: quarter
+        type: number
+      - name: month
+        sql: month
+        type: number
+      - name: day
+        sql: day
+        type: number

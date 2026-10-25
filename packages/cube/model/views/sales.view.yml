@@ -26,3 +26,11 @@ views:
           - order_status
           - order_priority
           - order_date
+      - join_path: fact_sales.dim_date
+        alias: calendar
+        includes:
+          - date_day
+          - year
+          - quarter
+          - month
+          - day
