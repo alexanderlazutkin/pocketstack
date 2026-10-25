@@ -29,6 +29,11 @@ test:
 verify:
     HARNESS_STRICT=1 {{python}} pytest packages/harness -q
 
+# Протокол оценки запросов (docs/bench-protocol.md): latency 3 путей + файлы SQL + сводная.
+# Требует запущенного `just cube`.
+bench:
+    cd packages/harness && {{python}} python -m harness.bench
+
 # Stage 2: cube dev-сервер (REST/GraphQL :4000 + SQL API :15432).
 # CUBEJS_DUCKDB_QUERY_LOG включает ground truth для `just verify`.
 cube:
