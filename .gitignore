@@ -32,3 +32,6 @@ packages/evidence/.evidence/
 # misc
 .DS_Store
 *.log
+
+# sqlmesh local cache
+.cache/
