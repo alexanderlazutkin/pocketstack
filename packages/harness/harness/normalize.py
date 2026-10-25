@@ -26,8 +26,10 @@ def norm_key(value) -> str:
     return s
 
 
-def norm_measure(value) -> Decimal:
-    """Каноническая мера: Decimal, округлённая до копеек (half-up)."""
+def norm_measure(value):
+    """Каноническая мера: Decimal, округлённая до копеек (half-up). None → None."""
+    if value is None:
+        return None
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 

@@ -3,8 +3,8 @@
 from harness.golden import GOLDEN
 
 
-def test_has_12_questions():
-    assert len(GOLDEN) == 12
+def test_has_13_questions():
+    assert len(GOLDEN) == 13
 
 
 def test_unique_ids():
@@ -23,7 +23,9 @@ def test_rest_query_shape():
         q = g["rest"]
         assert q.get("measures"), g["id"]
         for member in q["measures"] + q.get("dimensions", []):
-            assert member.startswith("sales."), f"{g['id']}: {member} не из view sales"
+            assert member.startswith(("sales.", "sales_mov.")), (
+                f"{g['id']}: {member} не из view sales / куба sales_mov"
+            )
 
 
 def test_sqlapi_shape():
@@ -35,9 +37,9 @@ def test_sqlapi_shape():
 
 def test_reference_shape():
     for g in GOLDEN:
-        r = g["reference"].strip()
-        assert r.upper().startswith("SELECT"), g["id"]
-        assert "marts.fact_sales" in r, g["id"]
+        r = g["reference"].strip().upper()
+        assert r.startswith(("SELECT", "WITH")), g["id"]
+        assert "MARTS.FACT_SALES" in r, g["id"]
 
 
 def test_key_cols_positive():

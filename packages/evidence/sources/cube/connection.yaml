@@ -1,0 +1,9 @@
+name: cube
+type: postgres
+description: Cube semantic layer через SQL API (pg-wire :15432) — единые метрики для всех дашбордов
+options:
+  host: localhost
+  port: 15432
+  user: sql-user
+  password: sql-password
+  database: default

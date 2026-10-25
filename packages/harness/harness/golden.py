@@ -186,4 +186,40 @@ GOLDEN = [
         "key_cols": 1,
         "ordered": True,
     },
+    {
+        "id": "sales_mov_1997",
+        "question": "Каковы месячная выручка и отклонения YoY/PoP за 1997 (куб sales_mov)?",
+        "rest": {
+            "measures": ["sales_mov.revenue"],
+            "dimensions": [
+                "sales_mov.month",
+                "sales_mov.revenue_ly",
+                "sales_mov.rel_yoy",
+                "sales_mov.rel_pop",
+            ],
+            "filters": [{"member": "sales_mov.year", "operator": "equals", "values": ["1997"]}],
+            "order": {"sales_mov.month": "asc"},
+        },
+        "sqlapi": "SELECT sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, "
+        "sales_mov.rel_pop, SUM(sales_mov.revenue) FROM sales_mov WHERE sales_mov.year = 1997 "
+        "GROUP BY sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_pop "
+        "ORDER BY sales_mov.month",
+        "reference": f"""
+WITH m AS (
+  SELECT d.year, d.month, sum(f.net_price) AS revenue
+  FROM marts.fact_sales f JOIN marts.dim_date d ON d.date_day = f.ship_date
+  GROUP BY 1, 2
+)
+SELECT cur.month, ly.revenue AS revenue_ly,
+       100.0 * (cur.revenue - ly.revenue) / ly.revenue AS rel_yoy,
+       100.0 * (cur.revenue - prev.revenue) / prev.revenue AS rel_pop,
+       cur.revenue
+FROM m cur
+LEFT JOIN m ly ON ly.year = cur.year - 1 AND ly.month = cur.month
+LEFT JOIN m prev ON prev.year = cur.year AND prev.month = cur.month - 1
+WHERE cur.year = 1997
+ORDER BY cur.month
+""",
+        "key_cols": 4,
+    },
 ]

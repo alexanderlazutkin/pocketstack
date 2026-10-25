@@ -27,6 +27,7 @@ SELECT
   li.l_shipmode     AS ship_mode,
   li.l_comment      AS comment,
   li.l_extendedprice * (1 - li.l_discount) AS net_price,
-  li.l_extendedprice * (1 - li.l_discount) * (1 + li.l_tax) AS total_price_with_tax
+  li.l_extendedprice * (1 - li.l_discount) * (1 + li.l_tax) AS total_price_with_tax,
+  date_diff('day', li.l_shipdate, li.l_receiptdate) AS days_in_transit
 FROM raw_tpch.lineitem AS li
 JOIN raw_tpch.orders AS o ON o.o_orderkey = li.l_orderkey

@@ -83,6 +83,7 @@ CONTRACT = {
         "comment",
         "net_price",
         "total_price_with_tax",
+        "days_in_transit",
     },
 }
 
@@ -178,3 +179,13 @@ def test_parity_raw_vs_fact(con):
     assert raw[0] == mart[0], f"rows: raw={raw[0]} mart={mart[0]}"
     assert raw[1] == mart[1], f"net_price: raw={raw[1]} mart={mart[1]}"
     assert raw[2] == mart[2], f"total_price_with_tax: raw={raw[2]} mart={mart[2]}"
+
+
+def test_days_in_transit_sane(con):
+    """Дни в пути: TPC-H канон — receipt = ship + [1..30]."""
+    lo, hi, nulls = con.execute(
+        "SELECT min(days_in_transit), max(days_in_transit), "
+        "count(*) FILTER (WHERE days_in_transit IS NULL) FROM marts.fact_sales"
+    ).fetchone()
+    assert nulls == 0, f"NULL дней: {nulls}"
+    assert 1 <= lo <= 30 and 1 <= hi <= 30, f"диапазон {lo}..{hi} вне канона TPC-H"

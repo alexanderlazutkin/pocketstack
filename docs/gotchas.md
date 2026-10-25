@@ -105,3 +105,41 @@
 - dim_date: union-диапазон `LEAST/GREATEST(ship_date, receipt_date)`, 1992-01-02..1998-12-31, 2557 дней.
 - Выручка по годам (ship-календарь, млрд): 1992 ≈ 27.5, 1993 ≈ 33.0, 1994 ≈ 33.0,
   1995 ≈ 33.3, 1996 ≈ 33.2, 1997 ≈ 33.1, 1998 ≈ 24.9.
+
+---
+
+## Evidence 40.1.8 (Stage 4, в процессе)
+
+### Архитектура данных (важно!)
+- **Инлайн-запросы в страницах (` ```sql name `) исполняются в DuckDB-WASM** поверх
+  материализованных parquet-таблиц, НЕ против живого источника.
+- К живому Cube выполняются только `.sql`-файлы в `sources/cube/*.sql`
+  (`npx evidence sources` — материализация). Схема в wasm: `cube.<имя_файла>`.
+- Поэтому: вся метрика — файлами в `sources/cube/` (golden-SQL дословно!),
+  страницы — тонкие обёртки `select * from cube.<id>` + фильтры `${inputs}` (wasm-side).
+
+### Синтаксис и грабли
+- ` ```sql name source=cube ` — НЕ ПОДДЕРЖАН в 40.1.8: весь заголовок fence идёт
+  в `{#if ...}` → битый Svelte («Component was left open» и др.). Источник = каталог.
+- YAML frontmatter: title с двоеточием обязательно в кавычки (`title: "Выручка: ..."`).
+- Трюк: fence ` ```sql ` БЕЗ имени = просто подсвеченный CodeBlock (для показа SQL).
+- Cube SQL API (pg-wire) через коннектор `type: postgres`: нативного `type: cube`
+  в 40.1.8 НЕТ (исследование bi-tools-comparison оказалось оптимистичным).
+- DuckDB-коннектор Evidence открывает файл READ-ONLY (безопасно с Cube одновременно);
+  `filename` в connection.yaml — путь ОТ каталога источника (4 уровня вверх из
+  sources/duckdb_local).
+
+### Установка/версии
+- `npm create evidence@latest` СЛОМАН (create-evidence без bin, 404) — шаблон брать:
+  `git clone --depth 1 -b legacy https://github.com/evidence-dev/template`.
+- Node 24 ломает SSR: `Cannot find module '__SERVER__/internal.js'` (sveltekit/vite).
+  Рабочая связка — Node 20: бинарь в `~/.local/opt/node-v20.19.0-linux-x64/bin/node`,
+  запуск: `PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH npm run dev`.
+- Ставить зависимости строго `npm ci --legacy-peer-deps` c package-lock из шаблона:
+  самостоятельный `npm install` резолвит несовместимые версии.
+
+### SQL API Cube: что НЕ умеет
+- `AVG(дата − дата)` → interval не усредняется; `DATE_DIFF`/`EXTRACT` в обёртках
+  переписывания не проходят. Решение: вычисляемое поле в модель (days_in_transit)
+  или куб с SQL (sales_mov).
+- Оконные функции и CTE — РАБОТАЮТ (проверено: SUM() OVER, WITH + self-join).

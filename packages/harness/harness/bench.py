@@ -172,16 +172,20 @@ def write_run(detail, summary, run_dir: Path, meta: dict) -> None:
         "SQL API — pg-wire `:15432`; REF — эталонный SQL к DuckDB.",
         "",
         "| Вопрос | rows | parity | REST p50 (min), мс | SQL API p50 (min), мс "
-        "| REF p50 (min), мс | SQL-хэш | файл |",
-        "|---|---|---|---|---|---|---|---|",
+        "| REF p50 (min), мс | SQL-хэш | файл | Evidence |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
+    import os
+
+    ev = os.environ.get("EVIDENCE_URL", "http://localhost:3000")
     for r in summary:
         lines.append(
             f"| `{r['id']}` | {r['rows']} | {r['parity']} "
             f"| {r['rest_p50_ms']:.0f} ({r['rest_min_ms']:.0f}) "
             f"| {r['sqlapi_p50_ms']:.0f} ({r['sqlapi_min_ms']:.0f}) "
             f"| {r['ref_p50_ms']:.0f} ({r['ref_min_ms']:.0f}) "
-            f"| `{r['sql_hash'][:12]}` | [SQL](../queries/{r['id']}.sql) |"
+            f"| `{r['sql_hash'][:12]}` | [SQL](../queries/{r['id']}.sql) "
+            f"| [дашборд]({ev}/verification#{r['id']}) |"
         )
     ok = sum(1 for r in summary if r["parity"] == "OK")
     lines += ["", f"**Итог**: {len(summary)} вопросов, паритет {ok}/{len(summary)}.", ""]

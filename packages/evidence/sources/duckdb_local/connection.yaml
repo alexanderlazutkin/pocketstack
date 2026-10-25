@@ -1,0 +1,5 @@
+name: duckdb_local
+type: duckdb
+description: Прямой доступ к warehouse — ТОЛЬКО отладка (не для дашбордов; метрики живут в Cube)
+options:
+  filename: ../../../../warehouse/pocketstack.duckdb

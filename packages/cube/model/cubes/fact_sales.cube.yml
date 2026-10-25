@@ -60,6 +60,9 @@ cubes:
       - name: ship_mode
         sql: ship_mode
         type: string
+      - name: days_in_transit
+        sql: days_in_transit
+        type: number
       - name: ship_date
         sql: ship_date
         type: time

@@ -1,10 +1,12 @@
 """Markdown-отчёт прогона harness: вопрос → rows-паритет / SQL-детерминизм / ground truth."""
 
 import datetime
+import os
 import subprocess
 from pathlib import Path
 
 OK, FAIL = "✅", "❌"
+EVIDENCE_URL = os.environ.get("EVIDENCE_URL", "http://localhost:3000")
 
 
 def _git(path: Path) -> str:
@@ -27,8 +29,8 @@ def write_report(results: dict, path: Path) -> None:
         f"_сгенерирован: {datetime.datetime.now().isoformat(timespec='seconds')}, "
         f"commit `{_git(path.parent.parent)}`_",
         "",
-        "| Вопрос | rows: REST↔SQLAPI↔REF | SQL-hash (N прогонов) | ground truth (лог DuckDB) |",
-        "|---|---|---|---|",
+        "| Вопрос | rows: REST↔SQLAPI↔REF | SQL-hash (N прогонов) | ground truth (лог DuckDB) | Evidence |",
+        "|---|---|---|---|---|",
     ]
     parity = results.get("parity", {})
     determ = results.get("determinism", {})
@@ -40,7 +42,8 @@ def write_report(results: dict, path: Path) -> None:
         det_cell = f"{OK} `{d[:12]}`" if d else (FAIL if d is False else "—")
         t = truth.get(qid)
         truth_cell = OK if t else (FAIL if t is False else "—")
-        lines.append(f"| `{qid}` | {rows_cell} | {det_cell} | {truth_cell} |")
+        ev_cell = f"[дашборд]({EVIDENCE_URL}/verification#{qid})"
+        lines.append(f"| `{qid}` | {rows_cell} | {det_cell} | {truth_cell} | {ev_cell} |")
 
     total = len(parity)
     passed = sum(1 for v in parity.values() if v)
