@@ -24,13 +24,16 @@ reset:
 test:
     {{python}} pytest -q
 
-# Stage 3: верификационный harness (golden-вопросы, rows/SQL-паритет)
+# Stage 3: верификационный harness (golden-вопросы, rows/SQL-паритет).
+# Требует запущенного `just cube` (REST :4000 + SQL API :15432 + лог запросов DuckDB).
 verify:
-    {{python}} pytest packages/harness -q
+    HARNESS_STRICT=1 {{python}} pytest packages/harness -q
 
-# Stage 2: cube dev-сервер (REST/GraphQL :4000 + SQL API :15432)
+# Stage 2: cube dev-сервер (REST/GraphQL :4000 + SQL API :15432).
+# CUBEJS_DUCKDB_QUERY_LOG включает ground truth для `just verify`.
 cube:
-    cd packages/cube && npm run dev
+    mkdir -p artifacts
+    cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm run dev
 
 # Stage 4: evidence dev-сервер
 evidence:

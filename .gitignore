@@ -35,3 +35,6 @@ packages/evidence/.evidence/
 
 # sqlmesh local cache
 .cache/
+
+# harness ground-truth query log (report в git)
+artifacts/duckdb_query_log.csv
