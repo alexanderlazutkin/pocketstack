@@ -1,0 +1,11 @@
+[project]
+name = "pocketstack-harness"
+version = "0.0.0"
+description = "Verification harness: golden questions, result + SQL parity via cube.dev"
+requires-python = ">=3.13"
+dependencies = [
+    "duckdb==1.4.4",
+    "pandas<3.0.0",
+    "pytest>=8",
+    "requests>=2",
+]

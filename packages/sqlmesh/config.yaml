@@ -1,0 +1,8 @@
+gateways:
+  local:
+    connection:
+      type: duckdb
+      database: ../../warehouse/pocketstack.duckdb
+      concurrent_tasks: 1
+
+default_gateway: local

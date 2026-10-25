@@ -1,0 +1,30 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# duckdb warehouse: полностью воспроизводим (just seed + sqlmesh run), не в git
+warehouse/*.duckdb
+warehouse/*.duckdb.wal
+warehouse/*.duckdb.tmp
+warehouse/queries.log
+
+# sqlmesh state
+.sqlmesh/
+
+# build artifacts
+*.egg-info/
+
+
+# node
+node_modules/
+
+# evidence build cache
+packages/evidence/.evidence/
+
+# misc
+.DS_Store
+*.log
