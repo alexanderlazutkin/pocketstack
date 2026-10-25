@@ -6,3 +6,7 @@ gateways:
       concurrent_tasks: 1
 
 default_gateway: local
+
+model_defaults:
+  dialect: duckdb
+  start: 2026-01-01

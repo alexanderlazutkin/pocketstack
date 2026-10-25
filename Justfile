@@ -6,13 +6,19 @@ duckdb_file := "warehouse/pocketstack.duckdb"
 seed:
     {{python}} python packages/sqlmesh/seed_tpch.py
 
-# Stage 1: sqlmesh plan (посмотреть diff до применения)
+# Stage 1: sqlmesh plan — интерактивный просмотр diff до применения
 plan:
-    cd packages/sqlmesh && {{python}} sqlmesh plan --no-prompts
+    cd packages/sqlmesh && {{python}} sqlmesh plan
 
-# Stage 1: sqlmesh apply
+# Stage 1: sqlmesh apply — применение без промптов (CI-режим)
 apply:
-    cd packages/sqlmesh && {{python}} sqlmesh apply
+    cd packages/sqlmesh && {{python}} sqlmesh plan --auto-apply --no-prompts
+
+# Полный пересбор с нуля: warehouse детерминирован (dbgen + sqlmesh)
+reset:
+    rm -f warehouse/pocketstack.duckdb warehouse/pocketstack.duckdb.wal
+    {{python}} python packages/sqlmesh/seed_tpch.py
+    cd packages/sqlmesh && {{python}} sqlmesh plan --auto-apply --no-prompts
 
 # Stage 1a+1b: тесты данных и витрины
 test:
