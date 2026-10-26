@@ -53,6 +53,8 @@
   harness ─ 13 golden-вопросов ─▶ REST ↔ SQL API ↔ эталонный SQL + лог DuckDB
 ```
 
+![Архитектура pocketstack](artifacts/Arch.png)
+
 - **Данные**: TPC-H dbgen (масштабируемый объём, `sf`) → sqlmesh строит витрину-звезду в DuckDB.
 - **Семантика**: Cube — view `sales`, куб `sales_mov` (YoY/PoP-отклонения), KPI-measures;
   каждый куб/член описан по-русски (`title`/`description` — AI-context).
