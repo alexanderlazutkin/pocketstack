@@ -1,0 +1,21 @@
+[project]
+name = "pocketstack-mcp"
+version = "0.0.0"
+description = "MCP-сервер (stdio) вокруг Cube: meta/load/sql REST + pg-wire SQL API"
+requires-python = ">=3.13"
+dependencies = [
+    "mcp>=1.2,<2",  # 2.x переименовал FastMCP→MCPServer; держим v1-API
+    "requests>=2.32",
+    "psycopg[binary]>=3.2",
+    "pocketstack-harness",
+]
+
+[tool.uv.sources]
+pocketstack-harness = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cube_mcp"]

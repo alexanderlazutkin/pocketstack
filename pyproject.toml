@@ -6,14 +6,16 @@ requires-python = ">=3.13"
 dependencies = [
     "pocketstack-sqlmesh",
     "pocketstack-harness",
+    "pocketstack-mcp",
 ]
 
 [tool.uv.sources]
 pocketstack-sqlmesh = { workspace = true }
 pocketstack-harness = { workspace = true }
+pocketstack-mcp = { workspace = true }
 
 [tool.uv.workspace]
-members = ["packages/sqlmesh", "packages/harness"]
+members = ["packages/sqlmesh", "packages/harness", "packages/mcp"]
 
 [dependency-groups]
 dev = ["ruff>=0.6"]

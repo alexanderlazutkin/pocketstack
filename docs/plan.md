@@ -142,8 +142,15 @@ pocketstack/
   паритет по построению; Σ выручки на /verification = KPI /revenue = 218,102,223,885.00;
   все 6 страниц рендерятся без ошибок консоли — `scripts/visual-check.mjs`)
 
-### Stage 5 — Claude Code MCP (запасной интерактив)
-- Тот же Cube MCP в Claude Code; сценарий как для opencode
+### Stage 5 — Claude Code MCP (запасной интерактив) — ✅ 2026-10-26
+- Официального MCP у OSS-Cube нет (`@cubejs-backend/mcp` — 404; `/mcp` — только
+  Enterprise/Cube Cloud, к локальному кубу неприменим)
+- Реализован свой тонкий MCP-сервер `packages/mcp` (FastMCP из mcp SDK v1,
+  stdio): tools `cube_meta` / `cube_load` (renewQuery, мимо кэша) / `cube_sql`
+  (ground-truth стиль) / `sql_api` (read-only whitelist через pg-wire)
+- Креды из `.env`; агент работает теми же путями, что проверяет harness
+- **Критерий приёмки**: ✅ MCP-клиент подключается, инструменты отвечают
+  (e2e-тест stdio: list_tools + call_tool; 9/9; docs/cube-mcp.md)
 
 ### Stage 6 — Попытка миграции на DuckDB 2.0
 - Условия готовности: npm-биндинги `duckdb` ≥2.0 + bump `@cubejs-backend/duckdb-driver` +
@@ -189,6 +196,7 @@ pocketstack/
 | 11 | 2026-10-26 | README.md проекта + docs/user-guide.md (установка/запуск, разблокировка DuckDB, сценарий сверки Cube UI + Evidence, карта отчётов/логов) | документация |
 | 12 | 2026-10-26 | Лог запросов DuckDB с таймингами: обёртка драйвера `TimingDuckDBDriver` (cube.js) пишет `started_at,finished_at,duration_ms,status,sql`; TDD — тест ground truth расширен ассертом таймингов (RED→GREEN 69/69); механика 3 уровней доказательств — в user-guide | Stage 3.3 |
 | 13 | 2026-10-26 | Security: секреты вынесены в `.env` (шаблон `.env.example`), фолбэки-креды удалены из cube.js/harness/connection.yaml; Evidence-connection.yaml рендерится из .env (legacy не интерполирует `${VAR}`); единые имена `CUBESQL_USER/CUBESQL_PASSWORD`; .env и connection.yaml — вне git | security |
+| 14 | 2026-10-26 | Stage 5: собственный MCP-сервер `packages/mcp` (FastMCP/mcp SDK v1, stdio) вокруг Cube REST + SQL API — официального пакета нет; tools meta/load/sql/sql_api; e2e-тест настоящим stdio-клиентом; фикс сборки pocketstack-harness (hatchling, пакет `harness` не устанавливался) | Stage 5 |
 
 ## 9. Реестр вопросов: статус и дата решения
 
@@ -202,3 +210,4 @@ pocketstack/
 | 6 | Подключение SQL-клиентов (DBeaver/DBX) к Cube | ✅ решён | 2026-10-26 | `docs/cube-sql-clients.md` |
 | 7 | PoP января: сдвиг месяца на границе года | ✅ решён | 2026-10-26 | куб `sales_mov`, эталон q13 (см. §8 п.9) |
 | 8 | Security: секреты в коде → `.env` (`.env.example`), best practices | ✅ решён | 2026-10-26 | cube.js/harness/connection.yaml; README «Безопасность»; см. §8 п.13 |
+| 9 | MCP для cube.dev: Enterprise/Cube Cloud недоступны для демо → свой тонкий сервер | ✅ решён | 2026-10-26 | `packages/mcp`, `docs/cube-mcp.md`; см. §8 п.14 |

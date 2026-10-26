@@ -181,3 +181,5 @@ latency REST / SQL API / Evidence-source (мс, медиана и лучший),
   `artifacts/verify-report.md` какой вопрос и какой путь разошёлся.
 - Полная пересборка → `scripts/stack.sh rebuild` (данные и витрины детерминированы).
 - Словарь известных грабель → `docs/gotchas.md` (симптом → причина → решение).
+- AI-агенту (opencode/Claude Code) нужен доступ к метрикам → MCP-сервер
+  `docs/cube-mcp.md` (подключается одной командой, read-only).

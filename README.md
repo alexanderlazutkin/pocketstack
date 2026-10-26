@@ -76,6 +76,7 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 | `docs/plan.md` | план стадий (со статусами) + реестр вопросов |
 | `docs/evidence-setup.md` | Evidence: установка с нуля (runbook) |
 | `docs/cube-sql-clients.md` | DBeaver/DBX к SQL API Cube |
+| `docs/cube-mcp.md` | MCP-сервер вокруг Cube для AI-агентов (opencode/Claude Code) |
 | `docs/bench-protocol.md` | протокол оценки запросов |
 | `docs/gotchas.md` | нюансы и грабли: симптом → причина → решение |
 
@@ -86,5 +87,5 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 
 ## Статусы стадий
 
-Stage 0–4 завершены (✅ 2026-10-25/26, см. `docs/plan.md` §5): окружение, витрина,
-семантика, harness, BI. Далее: Stage 5 (MCP-интерактив), 6 (DuckDB 2.0), 7 (ducklake+MinIO).
+Stage 0–5 завершены (✅ 2026-10-25/26, см. `docs/plan.md` §5): окружение, витрина,
+семантика, harness, BI, MCP-интерактив. Далее: Stage 6 (DuckDB 2.0), 7 (ducklake+MinIO).

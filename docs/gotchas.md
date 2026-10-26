@@ -77,6 +77,21 @@
   — «работало» только из-за совпадающих фолбэков. Единые имена: `CUBESQL_USER`,
   `CUBESQL_PASSWORD`.
 
+### MCP SDK: 2.x переименовал FastMCP (2026-10-26)
+- **Симптом**: `No module named 'mcp.server.fastmcp'. This is mcp 2.x, where
+  FastMCP was renamed to MCPServer` — uv резолвит mcp 2.x по `mcp>=1`.
+- **Решение**: пин `mcp>=1.2,<2` (packages/mcp/pyproject.toml).
+- Tool-аннотации в v1: `from mcp.types import ToolAnnotations` (НЕ `Annotations` —
+  тот для контента; pydantic-ошибка `Tool.annotations: expected ToolAnnotations`).
+- E2e-тест stdio: `mcp.ClientSession` + `mcp.client.stdio.stdio_client`,
+  `StdioServerParameters(command=sys.executable, args=["-m", "cube_mcp"], cwd=REPO)`.
+
+### pocketstack-harness не устанавливался как пакет (2026-10-26)
+- **Симптом**: `import harness` падал — setuptools flat-layout без build-system
+  ставил только `stage2_smoke`; тесты работали через sys.path-хак conftest.
+- **Решение**: build-system hatchling + `packages = ["harness"]` в
+  packages/harness/pyproject.toml → editable-установка пакета `harness`.
+
 ### Лог запросов DuckDB: формат с таймингами (2026-10-26)
 - Пишет НЕ движок (`SET log_query_path` — только голый SQL, без времени), а
   **обёртка драйвера** в `packages/cube/cube.js` (`TimingDuckDBDriver.query()`).
