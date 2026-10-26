@@ -2,9 +2,10 @@
 python := "uv run"
 duckdb_file := "warehouse/pocketstack.duckdb"
 
-# Stage 1a: генерация TPC-H sf=1 в схему raw_tpch
-seed:
-    {{python}} python packages/sqlmesh/seed_tpch.py
+# Stage 1a: генерация TPC-H в схему raw_tpch; sf — параметр (default 1):
+#   just seed        → sf=1;   just seed 2 → sf=2;   just seed 0.1 → крохотный сет
+seed sf="1":
+    {{python}} python packages/sqlmesh/seed_tpch.py {{sf}}
 
 # Stage 1: sqlmesh plan — интерактивный просмотр diff до применения
 plan:
@@ -14,10 +15,12 @@ plan:
 apply:
     cd packages/sqlmesh && {{python}} sqlmesh plan --auto-apply --no-prompts
 
-# Полный пересбор с нуля: warehouse детерминирован (dbgen + sqlmesh)
-reset:
+# Полный пересбор с нуля (warehouse детерминирован: dbgen + sqlmesh); sf — как в seed.
+# ВНИМАНИЕ: перед reset остановите стек — Cube держит блокировку DuckDB
+# (scripts/stack.sh down), иначе apply упадёт с Conflicting lock.
+reset sf="1":
     rm -f warehouse/pocketstack.duckdb warehouse/pocketstack.duckdb.wal
-    {{python}} python packages/sqlmesh/seed_tpch.py
+    {{python}} python packages/sqlmesh/seed_tpch.py {{sf}}
     cd packages/sqlmesh && {{python}} sqlmesh plan --auto-apply --no-prompts
 
 # Stage 1a+1b: тесты данных и витрины

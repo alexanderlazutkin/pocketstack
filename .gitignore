@@ -38,3 +38,10 @@ packages/evidence/.evidence/
 
 # harness ground-truth query log (report в git)
 artifacts/duckdb_query_log.csv
+
+# stack.sh runtime: pid-файлы и логи серверов
+artifacts/run/
+artifacts/logs/
+
+# бэкапы БД от транзакционного rebuild (удаляются при успехе, живут на случай сбоя)
+warehouse/*.duckdb.bak.*
