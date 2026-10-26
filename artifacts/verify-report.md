@@ -1,6 +1,6 @@
 # pocketstack verify-report
 
-_сгенерирован: 2026-10-26T12:17:14, commit `b94a13a`_
+_сгенерирован: 2026-10-26T13:36:41, commit `d398142`_
 
 | Вопрос | rows: REST↔SQLAPI↔REF | SQL-hash (N прогонов) | ground truth (лог DuckDB) | Evidence |
 |---|---|---|---|---|
@@ -16,6 +16,6 @@ _сгенерирован: 2026-10-26T12:17:14, commit `b94a13a`_
 | `lines_by_return_flag` | ✅ | ✅ `58034a433121` | ✅ | [дашборд](http://localhost:3000/verification#lines_by_return_flag) |
 | `revenue_1996_by_month` | ✅ | ✅ `743e313c8ad2` | ✅ | [дашборд](http://localhost:3000/verification#revenue_1996_by_month) |
 | `top5_customer_nations_by_revenue` | ✅ | ✅ `2adc51b9a449` | ✅ | [дашборд](http://localhost:3000/verification#top5_customer_nations_by_revenue) |
-| `sales_mov_1997` | ✅ | ✅ `ccd96474ce2c` | ✅ | [дашборд](http://localhost:3000/verification#sales_mov_1997) |
+| `sales_mov_1997` | ✅ | ✅ `687d9913f545` | ✅ | [дашборд](http://localhost:3000/verification#sales_mov_1997) |
 
 **Итог**: rows-паритет 13/13, SQL-детерминизм 13/13, ground truth 13/13.

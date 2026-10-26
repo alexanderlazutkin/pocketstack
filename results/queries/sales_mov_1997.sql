@@ -1,9 +1,9 @@
 SELECT "sales_mov".month "sales_mov__month", "sales_mov".revenue_ly "sales_mov__revenue_ly", "sales_mov".rel_yoy "sales_mov__rel_yoy", "sales_mov".rel_pop "sales_mov__rel_pop", sum("sales_mov".revenue) "sales_mov__revenue" 
 FROM  (WITH m AS (
-  SELECT d.year, d.month, SUM(f.net_price) AS revenue
+  SELECT d.year, d.month, d.year * 12 + d.month AS ym, SUM(f.net_price) AS revenue
   FROM pocketstack.marts.fact_sales f
   JOIN pocketstack.marts.dim_date d ON d.date_day = f.ship_date
-  GROUP BY 1, 2
+  GROUP BY 1, 2, 3
 )
 SELECT
   cur.year,
@@ -18,8 +18,8 @@ SELECT
   CASE WHEN prev.revenue IS NULL OR prev.revenue = 0 THEN NULL
        ELSE 100.0 * (cur.revenue - prev.revenue) / prev.revenue END AS rel_pop
 FROM m cur
-LEFT JOIN m ly   ON ly.year = cur.year - 1 AND ly.month = cur.month
-LEFT JOIN m prev ON prev.year = cur.year AND prev.month = cur.month - 1
+LEFT JOIN m ly   ON ly.ym = cur.ym - 12
+LEFT JOIN m prev ON prev.ym = cur.ym - 1
 )  AS "sales_mov"
 WHERE ("sales_mov".year = ?)
 GROUP BY 1, 2, 3, 4

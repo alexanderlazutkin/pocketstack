@@ -175,7 +175,7 @@ select * from cube.top5_customer_nations_by_revenue
 ## sales_mov_1997
 
 > **Проверяет:** Каковы месячная выручка и отклонения YoY/PoP за 1997 (куб sales_mov)?
-> **Используется:** куб `sales_mov`: YoY/PoP отклонения на [Отклонениях](/revenue-mov) — считаются в Cube, не в BI и не в таблице DuckDB
+> **Используется:** куб `sales_mov`: YoY/PoP отклонения на [Отклонениях](/revenue-mov) — считаются в Cube, не в BI и не в таблице DuckDB. Январь: PoP против декабря прошлого года (сдвиг по непрерывному индексу месяца).
 
 ```sql
 SELECT sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_pop, SUM(sales_mov.revenue) FROM sales_mov WHERE sales_mov.year = 1997 GROUP BY sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_pop ORDER BY sales_mov.month
@@ -184,4 +184,13 @@ SELECT sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_p
 ```sql v_sales_mov_1997
 select * from cube.sales_mov where year = 1997
 ```
-<DataTable data={v_sales_mov_1997} rows=all />
+<DataTable data={v_sales_mov_1997} rows=all>
+  <Column id=month title="Месяц" align=right />
+  <Column id=revenue title="Выручка" fmt=num2 align=right />
+  <Column id=revenue_ly title="LY" fmt=num2 align=right />
+  <Column id=abs_yoy title="Δ YoY, абс." fmt=num2 align=right contentType=colorscale scaleColor=business />
+  <Column id=rel_yoy title="Δ YoY, %" fmt=num2 align=right contentType=colorscale scaleColor=business />
+  <Column id=revenue_pop title="Пред. мес." fmt=num2 align=right />
+  <Column id=abs_pop title="Δ PoP, абс." fmt=num2 align=right contentType=colorscale scaleColor=business />
+  <Column id=rel_pop title="Δ PoP, %" fmt=num2 align=right contentType=colorscale scaleColor=business />
+</DataTable>

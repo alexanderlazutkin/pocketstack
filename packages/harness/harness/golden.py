@@ -206,17 +206,17 @@ GOLDEN = [
         "ORDER BY sales_mov.month",
         "reference": f"""
 WITH m AS (
-  SELECT d.year, d.month, sum(f.net_price) AS revenue
+  SELECT d.year, d.month, d.year * 12 + d.month AS ym, sum(f.net_price) AS revenue
   FROM marts.fact_sales f JOIN marts.dim_date d ON d.date_day = f.ship_date
-  GROUP BY 1, 2
+  GROUP BY 1, 2, 3
 )
 SELECT cur.month, ly.revenue AS revenue_ly,
        100.0 * (cur.revenue - ly.revenue) / ly.revenue AS rel_yoy,
        100.0 * (cur.revenue - prev.revenue) / prev.revenue AS rel_pop,
        cur.revenue
 FROM m cur
-LEFT JOIN m ly ON ly.year = cur.year - 1 AND ly.month = cur.month
-LEFT JOIN m prev ON prev.year = cur.year AND prev.month = cur.month - 1
+LEFT JOIN m ly ON ly.ym = cur.ym - 12
+LEFT JOIN m prev ON prev.ym = cur.ym - 1
 WHERE cur.year = 1997
 ORDER BY cur.month
 """,
