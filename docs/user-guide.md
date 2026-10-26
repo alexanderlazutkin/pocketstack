@@ -30,6 +30,10 @@ tar xf node-v20.19.0-linux-x64.tar.xz && rm node-v20.19.0-linux-x64.tar.xz
 ```bash
 git clone <repo-url> pocketstack && cd pocketstack
 
+# Секреты (вне git): скопируйте шаблон и сгенерируйте свои значения
+cp .env.example .env
+$EDITOR .env        # CUBEJS_API_SECRET и CUBESQL_PASSWORD: openssl rand -hex 32
+
 # Python-окружение (sqlmesh, harness, duckdb 1.4.4)
 uv sync
 
@@ -106,7 +110,7 @@ scripts/stack.sh sources   # если менялись данные (дашбо�
 - Добавьте Dimension `Sales.customer_region` — получите разрез, он же на дашборде.
 
 **Шаг 2 — Cube SQL API (pg-wire)**: любой SQL-клиент (DBeaver/DBX, подключение —
-`docs/cube-sql-clients.md`, `localhost:15432`, sql-user/sql-password):
+`docs/cube-sql-clients.md`, `localhost:15432`, креды из вашего `.env`):
 
 ```sql
 SELECT SUM(sales.revenue) FROM sales;

@@ -43,6 +43,7 @@
 
 ```bash
 # 0) предусловия: uv (python 3.12), Node 20 (см. docs/evidence-setup.md §0), just
+cp .env.example .env && $EDITOR .env   # секреты (openssl rand -hex 32) — вне git
 uv sync                                                    # python-окружение
 cd packages/evidence && npm ci --legacy-peer-deps && cd .. # BI-пакет
 
@@ -57,6 +58,15 @@ just bench                        # 13 вопросов, latency 3 путей
 SQL-клиенты — `docs/cube-sql-clients.md`.
 
 Другой объём данных: `scripts/stack.sh rebuild 2` (sf=2) или `just seed 0.1`.
+
+## Безопасность
+
+- Креды/токены — только в `.env` (в git не попадает; шаблон `.env.example`).
+  Код не содержит секретов и фолбэков: без `.env` компоненты не стартуют.
+- `connection.yaml` Evidence с реальными кредами генерируется из `.env`
+  (`scripts/render-evidence-connection.sh`) и тоже вне git.
+- Известное ограничение: Cube dev слушает все интерфейсы (0.0.0.0, опции привязки
+  в dev-сервере Cube нет) — запускайте только на доверенной машине/за файрволом.
 
 ## Документация
 

@@ -14,12 +14,12 @@ Cube отдаёт SQL API по протоколу PostgreSQL (pg-wire) на по
 | Host | `localhost` |
 | Port | `15432` |
 | Database | `default` |
-| User | `sql-user` |
-| Password | `sql-password` |
+| User | значение `CUBESQL_USER` из вашего `.env` |
+| Password | значение `CUBESQL_PASSWORD` из вашего `.env` |
 | SSL | выключить |
 
-Креды задаются в `packages/cube/cube.js` (env `CUBESQL_USER` / `CUBEJS_SQL_PASSWORD`),
-дефолты — `sql-user` / `sql-password`. Для демо оставлены дефолтные.
+Креды задаются в `.env` (шаблон `.env.example`; пароль — `openssl rand -hex 32`).
+Код фолбэков не содержит: без `.env` SQL API не примет дефолтные логин/пароль.
 
 **Предусловие**: запущен Cube dev-сервер — `PATH=$HOME/.local/bin:$PATH just cube`
 (REST :4000 + SQL API :15432). Без него подключения не будет.

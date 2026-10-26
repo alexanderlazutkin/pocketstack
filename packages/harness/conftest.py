@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from harness.env import load_env, required
+
+load_env()  # .env из корня репо: секреты не в коде (см. .env.example)
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
@@ -16,12 +20,12 @@ QUERY_LOG = ARTIFACTS / "duckdb_query_log.csv"
 REPORT = ARTIFACTS / "verify-report.md"
 
 CUBE_URL_VALUE = os.environ.get("CUBEJS_URL", "http://localhost:4000")
-CUBE_TOKEN_VALUE = os.environ.get("CUBEJS_API_SECRET", "pocketstack-demo-secret")
+CUBE_TOKEN_VALUE = required("CUBEJS_API_SECRET")
 SQLAPI_DSN = dict(
     host=os.environ.get("CUBESQL_HOST", "localhost"),
     port=int(os.environ.get("CUBESQL_PORT", "15432")),
-    user=os.environ.get("CUBESQL_USER", "sql-user"),
-    password=os.environ.get("CUBESQL_PASSWORD", "sql-password"),
+    user=required("CUBESQL_USER"),
+    password=required("CUBESQL_PASSWORD"),
     dbname="default",
 )
 STRICT = os.environ.get("HARNESS_STRICT", "") == "1"

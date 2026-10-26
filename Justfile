@@ -1,4 +1,6 @@
 # pocketstack — демо-раннер. Полный план стадий: docs/plan.md
+set dotenv-load := true  # секреты из .env (см. .env.example); в коде кредов нет
+
 python := "uv run"
 duckdb_file := "warehouse/pocketstack.duckdb"
 
@@ -44,8 +46,9 @@ cube:
     cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm run dev
 
 # Stage 4: evidence dev-сервер (ТОЛЬКО Node 20: системный 24.x ломает sveltekit/vite SSR,
-# см. docs/gotchas.md «Установка/версии»)
+# см. docs/gotchas.md «Установка/версии»). connection.yaml рендерится из .env
 evidence:
+    scripts/render-evidence-connection.sh
     cd packages/evidence && PATH=$(HOME)/.local/opt/node-v20.19.0-linux-x64/bin:$(PATH) npm run dev
 
 # ВНИМАНИЕ: системный DuckDB CLI 2.0 — к файлам проекта ТОЛЬКО read-only.

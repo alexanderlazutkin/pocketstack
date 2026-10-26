@@ -14,6 +14,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Секреты из .env (см. .env.example): креды Cube SQL API для Evidence и psql.
+# Внешние переменные не перезаписываем; .env в git не попадает.
+if [ -f "$REPO_ROOT/.env" ]; then set -a; . "$REPO_ROOT/.env"; set +a; fi
+
 RUN_DIR="$REPO_ROOT/artifacts/run"
 LOG_DIR="$REPO_ROOT/artifacts/logs"
 NODE20="$HOME/.local/opt/node-v20.19.0-linux-x64/bin"
@@ -72,6 +77,7 @@ cmd_up() {
     fi
     # Evidence
     ensure_node20
+    "$REPO_ROOT/scripts/render-evidence-connection.sh"   # креды из .env (не в git)
     if port_up http://localhost:3000; then
         log "Evidence уже работает (:3000)"
     else
@@ -115,6 +121,7 @@ cmd_status() {
 cmd_sources() {
     port_up http://localhost:4000 || die "Cube не работает — сначала: scripts/stack.sh up"
     ensure_node20
+    "$REPO_ROOT/scripts/render-evidence-connection.sh"   # креды из .env (не в git)
     log "Материализация Evidence sources из Cube..."
     ( cd "$REPO_ROOT/packages/evidence" && env PATH="$NODE20:$PATH" npm run sources )
 }

@@ -58,8 +58,13 @@ PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH \
 
 ## 3. Конфигурация
 
-- `connection.yaml`: источник `cube` — `type: postgres` на `:15432` (нативного `type: cube`
-  в 40.1.8 НЕТ) + `duckdb_local` (read-only, `filename` — путь ОТ каталога источника).
+- `connection.yaml` источника `cube` **генерируется из `.env`** скриптом
+  `scripts/render-evidence-connection.sh` (вызывается `stack.sh up/sources` и
+  `just evidence` автоматически): Evidence 40.1.8 не интерполирует `${VAR}` в
+  connection.yaml. Шаблон с плейсхолдерами — `connection.yaml.example` (в git);
+  сгенерированный файл с реальными кредами — вне git (.gitignore).
+- Второй источник `duckdb_local` — read-only, без кредов (`filename` — путь
+  ОТ каталога источника).
 - Архитектура данных: страницы исполняют запросы в DuckDB-WASM в браузере поверх
   parquet из `.evidence/template/static/data/`; живой Cube трогается только материализацией.
   Поэтому вся метрика — в `sources/cube/*.sql` (golden-SQL дословно), страницы — тонкие

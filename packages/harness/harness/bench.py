@@ -211,8 +211,12 @@ def append_index(index: Path, meta: dict, summary: list[dict]) -> None:
 
 
 def main() -> int:
+    from harness.env import load_env, required
+
+    load_env()  # .env из корня репо: секреты не в коде (см. .env.example)
+
     base = os.environ.get("CUBEJS_URL", "http://localhost:4000")
-    token = os.environ.get("CUBEJS_API_SECRET", "pocketstack-demo-secret")
+    token = required("CUBEJS_API_SECRET")
     here = Path(__file__).resolve().parent.parent  # packages/harness
     repo = here.parent.parent
     results_root = repo / "results"
@@ -226,8 +230,8 @@ def main() -> int:
     sqlapi_conn = psycopg.connect(
         host=os.environ.get("CUBESQL_HOST", "localhost"),
         port=int(os.environ.get("CUBESQL_PORT", "15432")),
-        user=os.environ.get("CUBESQL_USER", "sql-user"),
-        password=os.environ.get("CUBESQL_PASSWORD", "sql-password"),
+        user=required("CUBESQL_USER"),
+        password=required("CUBESQL_PASSWORD"),
         dbname="default",
     )
     duckdb_con = duckdb.connect(str(repo / "warehouse" / "pocketstack.duckdb"), read_only=True)

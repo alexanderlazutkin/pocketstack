@@ -188,6 +188,7 @@ pocketstack/
 | 10 | 2026-10-26 | Параметризация sf (Justfile `seed/reset sf=…`, default 1) + `scripts/stack.sh` (up/down/status/restart/sources/rebuild) — транзакционный rebuild: rename бэкап → dbgen(sf) → sqlmesh → up → sources → rm бэкап, при сбое авто-восстановление | инфраструктура |
 | 11 | 2026-10-26 | README.md проекта + docs/user-guide.md (установка/запуск, разблокировка DuckDB, сценарий сверки Cube UI + Evidence, карта отчётов/логов) | документация |
 | 12 | 2026-10-26 | Лог запросов DuckDB с таймингами: обёртка драйвера `TimingDuckDBDriver` (cube.js) пишет `started_at,finished_at,duration_ms,status,sql`; TDD — тест ground truth расширен ассертом таймингов (RED→GREEN 69/69); механика 3 уровней доказательств — в user-guide | Stage 3.3 |
+| 13 | 2026-10-26 | Security: секреты вынесены в `.env` (шаблон `.env.example`), фолбэки-креды удалены из cube.js/harness/connection.yaml; Evidence-connection.yaml рендерится из .env (legacy не интерполирует `${VAR}`); единые имена `CUBESQL_USER/CUBESQL_PASSWORD`; .env и connection.yaml — вне git | security |
 
 ## 9. Реестр вопросов: статус и дата решения
 
@@ -200,3 +201,4 @@ pocketstack/
 | 5 | Руководство пользователя: установка/запуск, разблокировка DuckDB, сценарий сверки (Cube UI + Evidence), логи тестов/оценки | ✅ решён | 2026-10-26 | `docs/user-guide.md` |
 | 6 | Подключение SQL-клиентов (DBeaver/DBX) к Cube | ✅ решён | 2026-10-26 | `docs/cube-sql-clients.md` |
 | 7 | PoP января: сдвиг месяца на границе года | ✅ решён | 2026-10-26 | куб `sales_mov`, эталон q13 (см. §8 п.9) |
+| 8 | Security: секреты в коде → `.env` (`.env.example`), best practices | ✅ решён | 2026-10-26 | cube.js/harness/connection.yaml; README «Безопасность»; см. §8 п.13 |

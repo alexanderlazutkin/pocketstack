@@ -33,6 +33,13 @@ packages/evidence/.evidence/
 .DS_Store
 *.log
 
+# секреты: только .env.example в git; .env — локальный (см. docs/user-guide.md §1)
+.env
+packages/evidence/.env
+
+# сгенерированный из .env (реальные креды); шаблон — connection.yaml.example
+packages/evidence/sources/cube/connection.yaml
+
 # sqlmesh local cache
 .cache/
 

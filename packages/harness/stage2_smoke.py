@@ -1,6 +1,7 @@
 """Stage 2 acceptance: REST /v1/load vs SQL API (pg-wire) vs DuckDB reference."""
 
 import json
+import os
 import subprocess
 import urllib.request
 
@@ -32,17 +33,20 @@ def rest_query() -> dict:
 
 
 def sql_api_query() -> dict:
+    from harness.env import load_env
+
+    load_env()  # креды из .env (см. .env.example)
     out = subprocess.run(
         [
             "psql",
             "-h",
-            "localhost",
+            os.environ.get("CUBESQL_HOST", "localhost"),
             "-p",
-            "15432",
+            os.environ.get("CUBESQL_PORT", "15432"),
             "-U",
-            "sql-user",
+            os.environ["CUBESQL_USER"],
             "-d",
-            "cube",
+            "default",
             "-At",
             "-F",
             "|",
@@ -52,7 +56,12 @@ def sql_api_query() -> dict:
         ],
         capture_output=True,
         text=True,
-        env={"PGPASSWORD": "sql-password", "PATH": "/usr/bin:/bin"},
+        env={
+            "PGPASSWORD": os.environ.get(
+                "CUBESQL_PASSWORD", ""
+            ),  # из .env; см. harness.env.load_env и .env.example
+            "PATH": "/usr/bin:/bin",
+        },
         check=True,
     ).stdout
     result = {}

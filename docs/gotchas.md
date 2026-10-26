@@ -56,6 +56,27 @@
 - **Симптом**: повторный `/v1/load` не порождает запрос к БД → в логе его нет.
 - **Решение**: body `{"query": {...}, "renewQuery": true}`.
 
+### Evidence не интерполирует ${VAR} в connection.yaml (40.1.8)
+- **Симптом**: `password authentication failed for user "${CUBESQL_USER}"` —
+  литеральная строка ушла как логин.
+- **Решение**: рендер из шаблона — `connection.yaml.example` (плейсхолдеры
+  `__CUBESQL_USER__`/`__CUBESQL_PASSWORD__`) скриптом
+  `scripts/render-evidence-connection.sh` (source-ит .env). Реальный
+  connection.yaml — вне git (.gitignore), .env — вне git.
+
+### Секреты: только .env, без фолбэков в коде (2026-10-26)
+- Креды Cube (apiSecret, SQL API user/password) живут в `.env` (шаблон
+  `.env.example`, пароли через `openssl rand -hex 32`, chmod 600).
+- cube.js / harness (conftest, bench) требуют переменные и падают с понятной
+  ошибкой, если .env нет — дефолтных кредов в коде больше НЕТ (старые
+  `sql-user`/`sql-password` из git-истории более не работают).
+- Загрузка .env: cube.js (собственный парсер), harness `harness/env.py`
+  (`load_env()`, `setdefault` — внешние переменные приоритетнее), Justfile
+  (`set dotenv-load := true`), stack.sh (`set -a; . .env; set +a`).
+- Ловушка имени: в cube.js был `CUBEJS_SQL_PASSWORD`, в harness `CUBESQL_PASSWORD`
+  — «работало» только из-за совпадающих фолбэков. Единые имена: `CUBESQL_USER`,
+  `CUBESQL_PASSWORD`.
+
 ### Лог запросов DuckDB: формат с таймингами (2026-10-26)
 - Пишет НЕ движок (`SET log_query_path` — только голый SQL, без времени), а
   **обёртка драйвера** в `packages/cube/cube.js` (`TimingDuckDBDriver.query()`).
@@ -72,7 +93,7 @@
 - `@cubejs-backend/mcp` → 404 (проверено 2026-10-25). Fallback по плану рисков: REST/SQL API; harness от MCP не зависит.
 
 ### Прочее
-- Dev mode: аутентификация отключена, header Authorization игнорируется; Playground на `:4000`, SQL API на `:15432` (`dbname='default'`, sql-user/sql-password).
+- Dev mode: аутентификация отключена, header Authorization игнорируется; Playground на `:4000`, SQL API на `:15432` (`dbname='default'`, креды — из `.env`, см. раздел security выше).
 - Pre-aggregations OFF принципиально — иначе SQL-паритет теряет смысл.
 
 ---

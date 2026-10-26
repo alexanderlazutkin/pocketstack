@@ -58,8 +58,8 @@ sources:
     type: cube
     host: localhost
     port: 15432
-    user: sql-user
-    password: sql-password
+    user: ${CUBESQL_USER}      # из .env (историческая заметка: нативного type: cube нет)
+    password: ${CUBESQL_PASSWORD}
     database: cube
   duckdb_local:
     type: duckdb
