@@ -2,7 +2,7 @@
 
 Версия плана: 1.1 (2026-10-25). Обоснование выбора BI — `docs/bi-tools-comparison.md`.
 Нюансы и грабли — `docs/gotchas.md`; протокол оценки запросов — `docs/bench-protocol.md`;
-установка Evidence с нуля — `docs/evidence-setup.md`.
+установка Evidence с нуля — `docs/evidence-setup.md`; SQL-клиенты к Cube — `docs/cube-sql-clients.md`.
 
 ## 1. Цели и приоритеты
 

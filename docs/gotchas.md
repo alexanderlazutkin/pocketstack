@@ -44,6 +44,13 @@
 - **Симптом**: `Measure aggregation type doesn't match ... COUNTDISTINCT() but SUM() was provided`.
 - **Правила**: sum → `SUM(m)`, avg → `AVG(m)` (переписывается корректно, не avg-of-avg), count → `COUNT(m)`, count_distinct → `COUNT(DISTINCT m)`.
 - Мера без агрегата в SELECT не резолвится (`could not be resolved from available columns`).
+- **Уточнение (2026-10-26, проверено)**: числовые меры допускают и чужие агрегаты
+  (`AVG(sales_mov.revenue)` → средняя месячная выручка, корректно); mismatch-ошибка
+  воспроизводится на спец-мерах (count_distinct и т.п.). Агрегат по **измерению** тоже
+  работает: `SUM(sales_mov.abs_yoy)` за 1997 = −103,374,792.92 = rollup меры
+  `abs_yoy_sum` (независимая сверка KPI). Интроспекцию pg-клиенты получают через
+  information_schema (кубы = `public.*`) — DBeaver/DBX подключаются штатно
+  (см. `docs/cube-sql-clients.md`).
 
 ### Кэш ломает ground-truth проверки
 - **Симптом**: повторный `/v1/load` не порождает запрос к БД → в логе его нет.
