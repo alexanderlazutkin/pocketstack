@@ -1,31 +1,52 @@
 cubes:
   - name: dim_part
+    title: Детали
+    description: |
+      Измерение «Деталь» (TPC-H PART): номенклатура продаваемых товаров.
+      Grain — деталь.
     sql: SELECT * FROM pocketstack.marts.dim_part
     joins: []
 
     dimensions:
       - name: part_id
+        title: Деталь
         sql: part_id
         type: number
         primary_key: true
+        description: Идентификатор детали (P_PARTKEY). Уникален.
       - name: part_name
+        title: Наименование детали
         sql: part_name
         type: string
+        description: Название детали — 3–5 слов через пробел (генерируется словарём TPC-H).
       - name: manufacturer
+        title: Производитель
         sql: manufacturer
         type: string
+        description: Производитель детали (Manufacturer#1…Manufacturer#5).
       - name: brand
+        title: Бренд
         sql: brand
         type: string
+        description: Бренд детали (Brand#1…Brand#55); каждый бренд принадлежит одному производителю (Brand#N → Manufacturer#⌈N/10⌉ по генератору).
       - name: part_type
+        title: Тип детали
         sql: part_type
         type: string
+        description: Тип детали — составное название из 5 слов (например «STANDARD ANODIZED STEEL»), первый токен часто используют как грубый класс (STANDARD, SMALL, MEDIUM, LARGE, PROMO, ECONOMY…).
       - name: part_size
+        title: Размер детали
         sql: part_size
         type: number
+        description: Условный размер детали, целое 1–50.
       - name: part_container
+        title: Упаковка
         sql: part_container
         type: string
+        description: >-
+          Тип упаковки — размер SM/MED/LG/JUMBO/WRAP × тара BAG/BOX/CAN/CASE/DRUM/JAR/PACK/PKG, всего 40 значений.
       - name: part_retail_price
+        title: Розничная цена детали
         sql: part_retail_price
         type: number
+        description: Справочная розничная цена детали, ден. ед. (атрибут номенклатуры, не факт продаж).

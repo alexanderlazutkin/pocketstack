@@ -1,25 +1,43 @@
 cubes:
   - name: dim_customer
+    title: Клиенты
+    description: |
+      Измерение «Клиент» (TPC-H CUSTOMER + NATION + REGION): кто покупает.
+      Grain — клиент. В данных у трети клиентов нет ни одного заказа («мёртвые» данные TPC-H).
     sql: SELECT * FROM pocketstack.marts.dim_customer
     joins: []
 
     dimensions:
       - name: customer_id
+        title: Клиент
         sql: customer_id
         type: number
         primary_key: true
+        description: Идентификатор клиента (C_CUSTKEY). Уникален.
       - name: customer_name
+        title: Наименование клиента
         sql: customer_name
         type: string
+        description: Название компании-клиента (генерируется как «Customer#<id>...»).
       - name: customer_nation
+        title: Страна клиента
         sql: customer_nation
         type: string
+        description: Страна регистрации клиента, одна из 25 стран TPC-H.
       - name: customer_region
+        title: Регион клиента
         sql: customer_region
         type: string
+        description: >-
+          Регион страны клиента: AFRICA, AMERICA, ASIA, EUROPE, MIDDLE EAST. Используется для верхнеуровневой гео-разрезки выручки.
       - name: market_segment
+        title: Сегмент рынка
         sql: market_segment
         type: string
+        description: >-
+          Сегмент рынка клиента: AUTOMOBILE, BUILDING, FURNITURE, HOUSEHOLD, MACHINERY.
       - name: customer_acct_balance
+        title: Баланс клиента
         sql: customer_acct_balance
         type: number
+        description: Остаток на счёте клиента, ден. ед. Может быть отрицательным (дебиторка).

@@ -1,22 +1,38 @@
 cubes:
   - name: dim_date
+    title: Календарь
+    description: |
+      Измерение «Календарь» (date dimension): непрерывный диапазон дней от минимальной даты отгрузки
+      до максимальной даты получения факта, без пропусков. Присоединяется к факту по ship_date.
     sql: SELECT * FROM pocketstack.marts.dim_date
     joins: []
 
     dimensions:
       - name: date_day
+        title: Дата
         sql: date_day
         type: time
         primary_key: true
+        description: >-
+          Календарный день (PK). Join с фактом: fact_sales.ship_date = date_day.
       - name: year
+        title: Год
         sql: year
         type: number
+        description: >-
+          Год даты (в данных TPC-H: 1992–1998).
       - name: quarter
+        title: Квартал
         sql: quarter
         type: number
+        description: Квартал года, 1–4.
       - name: month
+        title: Месяц
         sql: month
         type: number
+        description: Номер месяца, 1–12 (не имя).
       - name: day
+        title: День месяца
         sql: day
         type: number
+        description: День месяца, 1–31.

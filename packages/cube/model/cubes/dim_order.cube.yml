@@ -1,28 +1,51 @@
 cubes:
   - name: dim_order
+    title: Заказы (заголовки)
+    description: |
+      Измерение «Заказ» (TPC-H ORDERS): заголовок заказа — кто, когда, с каким приоритетом.
+      Grain — заказ. Суммы заказа (total_price) — атрибут заголовка, при разрезке по позициям
+      дублируются на каждую позицию: агрегировать их по факту нельзя, только по заказам.
     sql: SELECT * FROM pocketstack.marts.dim_order
     joins: []
 
     dimensions:
       - name: order_id
+        title: Заказ
         sql: order_id
         type: number
         primary_key: true
+        description: Идентификатор заказа (O_ORDERKEY). Уникален.
       - name: order_key
+        title: Ключ заказа (ориг.)
         sql: order_key
         type: number
+        description: Технический дубль order_id из исходной таблицы ORDERS.
       - name: order_status
+        title: Статус заказа
         sql: order_status
         type: string
+        description: >-
+          Статус исполнения заказа: O — открыт, F — завершён, P — в обработке.
       - name: order_priority
+        title: Приоритет заказа
         sql: order_priority
         type: string
+        description: |
+          Приоритет обработки: 1-URGENT, 2-HIGH, 3-MEDIUM, 4-NOT SPECIFIED, 5-LOW.
+          Сортируется лексикографически (цифра-префикс) — порядок соответствует убыванию важности.
       - name: clerk
+        title: Клерк
         sql: clerk
         type: string
+        description: Клерк, оформивший заказ («Clerk#<номер>»).
       - name: order_date
+        title: Дата заказа
         sql: order_date
         type: time
+        description: Дата оформления заказа. Не путать с датами позиций (ship/receipt).
       - name: total_price
+        title: Сумма заказа
         sql: total_price
         type: number
+        description: >-
+          Итоговая сумма заказа по заголовку (O_TOTALPRICE), ден. ед. Атрибут заказа, а не факта: SUM по нему без разрезки на заказы даст завышение.

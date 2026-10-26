@@ -1,22 +1,37 @@
 cubes:
   - name: dim_supplier
+    title: Поставщики
+    description: |
+      Измерение «Поставщик» (TPC-H SUPPLIER + NATION + REGION): кто исполнил позицию заказа.
+      Grain — поставщик.
     sql: SELECT * FROM pocketstack.marts.dim_supplier
     joins: []
 
     dimensions:
       - name: supplier_id
+        title: Поставщик
         sql: supplier_id
         type: number
         primary_key: true
+        description: Идентификатор поставщика (S_SUPPKEY). Уникален.
       - name: supplier_name
+        title: Наименование поставщика
         sql: supplier_name
         type: string
+        description: Название компании-поставщика («Supplier#<id>...»).
       - name: supplier_nation
+        title: Страна поставщика
         sql: supplier_nation
         type: string
+        description: Страна поставщика, одна из 25 стран TPC-H.
       - name: supplier_region
+        title: Регион поставщика
         sql: supplier_region
         type: string
+        description: >-
+          Регион поставщика: AFRICA, AMERICA, ASIA, EUROPE, MIDDLE EAST.
       - name: supplier_acct_balance
+        title: Баланс поставщика
         sql: supplier_acct_balance
         type: number
+        description: Остаток на счёте поставщика, ден. ед. Может быть отрицательным.

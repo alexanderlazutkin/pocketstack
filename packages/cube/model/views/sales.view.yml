@@ -1,5 +1,12 @@
 views:
   - name: sales
+    title: Продажи (витрина)
+    description: |
+      Витрина продаж для конечных запросов: факт fact_sales + разрезы клиент/деталь/
+      поставщик/заказ/календарь в одном пространстве имён. Обычно запросы агента и
+      дашбордов идут сюда, а не в отдельные кубы.
+      Члены измерений получают префикс алиаса: customer.region, part.brand,
+      supplier.nation, order.status, calendar.year и т.п.
     cubes:
       - join_path: fact_sales
         includes: "*"

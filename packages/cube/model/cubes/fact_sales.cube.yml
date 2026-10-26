@@ -1,5 +1,10 @@
 cubes:
   - name: fact_sales
+    title: Продажи (позиции заказов)
+    description: |
+      Факт продаж: одна строка — позиция заказа (line item) оптового поставщика деталей.
+      Источник — TPC-H LINEITEM, дополненная заказчиком из ORDERS. Grain: (order_id, line_number).
+      Используется через витрину `sales`; напрямую лучше не запрашивать.
     sql: SELECT * FROM pocketstack.marts.fact_sales
     joins:
       - name: dim_customer
@@ -20,55 +25,97 @@ cubes:
 
     measures:
       - name: revenue
+        title: Выручка
         sql: net_price
         type: sum
         format: currency
+        description: |
+          Сумма по позициям: цена позиции за вычетом скидки, до налога —
+          extended_price × (1 − discount), ден. ед. Главная метрика выручки проекта
+          (та же формула, что `revenue` в запросе Q1 TPC-H).
       - name: revenue_with_tax
+        title: Выручка с налогом
         sql: total_price_with_tax
         type: sum
         format: currency
+        description: |
+          Сумма по позициям: цена после скидки с налогом —
+          extended_price × (1 − discount) × (1 + tax), ден. ед.
       - name: quantity
+        title: Количество (шт)
         sql: quantity
         type: sum
+        description: Суммарное количество проданных единиц (шт) по позициям.
       - name: lines_count
+        title: Количество позиций
         type: count
+        description: Число строк-позиций заказов (не заказов). Одна позиция = один товар в одном заказе.
       - name: orders_count
+        title: Количество заказов
         sql: order_id
         type: count_distinct
+        description: Число уникальных заказов. Заказ содержит несколько позиций, поэтому меньше lines_count.
       - name: avg_discount
+        title: Средняя скидка
         sql: discount
         type: avg
         format: percent
+        description: Средняя скидка по позициям; в данных задана долей 0.00–0.10 (0.05 = 5%).
 
     dimensions:
       - name: line_key
+        title: Ключ позиции
         sql: "{CUBE}.order_id * 100 + {CUBE}.line_number"
         type: number
         primary_key: true
+        description: >-
+          Суррогатный ключ строки факта: order_id × 100 + line_number. Уникален в пределах таблицы.
       - name: order_id
+        title: Заказ
         sql: order_id
         type: number
+        description: Идентификатор заказа (O_ORDERKEY). Внутри заказа 1–7 позиций.
       - name: line_number
+        title: Номер позиции
         sql: line_number
         type: number
+        description: Порядковый номер позиции внутри заказа (1–7).
       - name: return_flag
+        title: Признак возврата
         sql: return_flag
         type: string
+        description: >-
+          Статус возврата позиции: A — принята (возврата нет), N — без статуса возврата, R — возвращена.
       - name: line_status
+        title: Статус позиции
         sql: line_status
         type: string
+        description: >-
+          Статус исполнения позиции: F — закрыта (поставка завершена), O — открыта (ещё в работе).
       - name: ship_mode
+        title: Режим доставки
         sql: ship_mode
         type: string
+        description: >-
+          Вид транспорта доставки позиции: AIR, FOB, MAIL, RAIL, REG AIR, SHIP, TRUCK.
       - name: days_in_transit
+        title: Дней в пути
         sql: days_in_transit
         type: number
+        description: >-
+          Длительность доставки в днях: receipt_date − ship_date.
       - name: ship_date
+        title: Дата отгрузки
         sql: ship_date
         type: time
+        description: Дата отгрузки позиции со склада. Основная временная ось факта (по ней join с календарём).
       - name: commit_date
+        title: Обещанная дата
         sql: commit_date
         type: time
+        description: Обещанная (контрактная) дата доставки позиции.
       - name: receipt_date
+        title: Дата получения
         sql: receipt_date
         type: time
+        description: Фактическая дата получения позиции клиентом; всегда не раньше ship_date.

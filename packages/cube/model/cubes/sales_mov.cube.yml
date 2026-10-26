@@ -1,12 +1,14 @@
 cubes:
   - name: sales_mov
-    # Отклонения выручки по месяцам: YoY (к тому же месяцу прошлого года) и
-    # PoP (к предыдущему месяцу, январь — против декабря прошлого года), абс. и относительные.
-    # Логика живёт ЗДЕСЬ, в семантическом слое Cube: подзапрос не материализуется
-    # в DuckDB, выполняется при каждом запросе. Grain результата: (year, month).
-    # Сдвиг месяца — по НЕПРЕРЫВНОМУ индексу ym = year*12 + month:
-    # prev.ym = cur.ym - 1 (месяц назад), ly.ym = cur.ym - 12 (год назад).
-    # month - 1 НЕ ГОДИТСЯ: для января даёт 0 вместо 12 прошлого года.
+    title: Отклонения выручки (MoM/YoY)
+    description: |
+      Отклонения выручки по месяцам: YoY (к тому же месяцу прошлого года) и
+      PoP (к предыдущему месяцу, январь — против декабря прошлого года), абс. и относительные.
+      Логика живёт ЗДЕСЬ, в семантическом слое Cube: подзапрос не материализуется
+      в DuckDB, выполняется при каждом запросе. Grain результата: (year, month).
+      Сдвиг месяца — по НЕПРЕРЫВНОМУ индексу ym = year*12 + month:
+      prev.ym = cur.ym - 1 (месяц назад), ly.ym = cur.ym - 12 (год назад).
+      month - 1 НЕ ГОДИТСЯ: для января даёт 0 вместо 12 прошлого года.
     sql: |
       WITH m AS (
         SELECT d.year, d.month, d.year * 12 + d.month AS ym, SUM(f.net_price) AS revenue
@@ -33,45 +35,73 @@ cubes:
 
     measures:
       - name: revenue
+        title: Выручка
         sql: revenue
         type: sum
         format: currency
+        description: |
+          Сумма месячной выручки (net_price, после скидки до налога) за выбранный период,
+          ден. ед. При разрезке по (year, month) — выручка одного месяца.
       # KPI-агрегаты года: Σ месячных абс. отклонений и среднее отн. (в п.п.).
       # Rollup идёт по grain подзапроса (year, month), т.е. ровно сумма/среднее
       # строк sales_mov за год — то, что дашборд «Отклонения» показывает в KPI.
       - name: abs_yoy_sum
+        title: Сумма абс. отклонений YoY
         sql: abs_yoy
         type: sum
+        description: Сумма месячных абсолютных отклонений к прошлому году, ден. ед. KPI «итого изменение за год» на дашборде «Отклонения».
       - name: rel_yoy_avg
+        title: Среднее отклонение YoY
         sql: rel_yoy
         type: avg
+        description: Среднее месячное относительное отклонение к прошлому году, процентные пункты (п.п.). KPI дашборда «Отклонения».
 
     dimensions:
       - name: ym
+        title: Месяц (суррогат)
         sql: "{CUBE}.year * 100 + {CUBE}.month"
         type: number
         primary_key: true
+        description: Суррогатный ключ месяца YYYYMM (199701 = январь 1997). Сортируется хронологически.
       - name: year
+        title: Год
         sql: year
         type: number
+        description: Год месяца (по дате отгрузки). Разрез без month даёт годовые агрегаты.
       - name: month
+        title: Месяц
         sql: month
         type: number
+        description: Номер месяца 1–12 (не имя).
       - name: revenue_ly
+        title: Выручка год назад
         sql: revenue_ly
         type: number
+        description: Выручка того же месяца прошлого года, ден. ед. База сравнения YoY.
       - name: abs_yoy
+        title: Абс. отклонение YoY
         sql: abs_yoy
         type: number
+        description: revenue − revenue_ly, ден. ед. Положительное — рост к прошлому году.
       - name: rel_yoy
+        title: Отклонение YoY, %
         sql: rel_yoy
         type: number
+        description: >-
+          Относительное отклонение к тому же месяцу прошлого года, %: 100×(revenue−revenue_ly)/revenue_ly.
       - name: revenue_pop
+        title: Выручка предыдущего месяца
         sql: revenue_pop
         type: number
+        description: Выручка предыдущего месяца (у января — декабрь прошлого года), ден. ед. База сравнения PoP.
       - name: abs_pop
+        title: Абс. отклонение PoP
         sql: abs_pop
         type: number
+        description: revenue − revenue_pop, ден. ед.
       - name: rel_pop
+        title: Отклонение PoP, %
         sql: rel_pop
         type: number
+        description: >-
+          Относительное отклонение к предыдущему месяцу (period-over-period), %: 100×(revenue−revenue_pop)/revenue_pop. PoP = month-over-month (MoM).
