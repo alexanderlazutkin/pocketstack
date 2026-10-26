@@ -187,6 +187,7 @@ pocketstack/
 | 9 | 2026-10-26 | Фикс PoP января: сдвиг месяца по непрерывному индексу `ym=год*12+месяц` (было `month-1` → 0 вместо 12); эталон q13 переписан первым (RED), куб догнан (GREEN 69/69); bench 13/13, прогон `2026-10-26T133737` | Stage 4 |
 | 10 | 2026-10-26 | Параметризация sf (Justfile `seed/reset sf=…`, default 1) + `scripts/stack.sh` (up/down/status/restart/sources/rebuild) — транзакционный rebuild: rename бэкап → dbgen(sf) → sqlmesh → up → sources → rm бэкап, при сбое авто-восстановление | инфраструктура |
 | 11 | 2026-10-26 | README.md проекта + docs/user-guide.md (установка/запуск, разблокировка DuckDB, сценарий сверки Cube UI + Evidence, карта отчётов/логов) | документация |
+| 12 | 2026-10-26 | Лог запросов DuckDB с таймингами: обёртка драйвера `TimingDuckDBDriver` (cube.js) пишет `started_at,finished_at,duration_ms,status,sql`; TDD — тест ground truth расширен ассертом таймингов (RED→GREEN 69/69); механика 3 уровней доказательств — в user-guide | Stage 3.3 |
 
 ## 9. Реестр вопросов: статус и дата решения
 
