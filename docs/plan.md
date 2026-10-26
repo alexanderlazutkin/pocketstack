@@ -152,11 +152,21 @@ pocketstack/
 - **Критерий приёмки**: ✅ MCP-клиент подключается, инструменты отвечают
   (e2e-тест stdio: list_tools + call_tool; 9/9; docs/cube-mcp.md)
 
-### Stage 6 — Попытка миграции на DuckDB 2.0
+### Stage 6 — Попытка миграции на DuckDB 2.0 — ⏸ watch 2026-10-26: не готова
 - Условия готовности: npm-биндинги `duckdb` ≥2.0 + bump `@cubejs-backend/duckdb-driver` +
   sqlmesh снимает `<2` + расширения tpch/ducklake под 2.0 (ежемесячный upgrade watch)
 - Процедура: поднять пины → перегенерировать warehouse с нуля → прогон harness + Evidence
 - Провал → откат к 1.4.4 + перегенерация (дёшево: всё скриптовано)
+- **Watch 2026-10-26 — не готова, миграция не начиналась** (пины 1.4.4 нетронуты):
+  - ✅ PyPI `duckdb` 2.0.0 стабильна; расширения `tpch`/`ducklake` под 2.0 ставятся и грузятся
+  - ❌ npm `duckdb` latest 1.4.4 (2.x не публикуется) — блокер Cube
+  - ❌ `@cubejs-backend/duckdb-driver` 1.8.13 (наш пин актуален, bump нет)
+  - ❌ Evidence: `@evidence-dev/duckdb` → `@duckdb/node-api ^1.4.2`
+  - ❌ sqlmesh 0.236.4: `duckdb<2` не снят
+  - Жёсткая связка подтверждена эмпирически: файл БД 2.0 (формат v999) не читается
+    движком 1.4.4 («can only read versions between 64 and 67») → мигрировать можно
+    только всем стеком одномоментно; python-часть в одиночку поднять нельзя
+- Следующий watch: ~2026-11 (или по release-notes cube duckdb-driver / sqlmesh)
 
 ### Stage 7 — ducklake + MinIO (последняя)
 - ATTACH ducklake-каталога: сначала local FS (Parquet), опционально MinIO (docker)

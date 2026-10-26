@@ -10,7 +10,11 @@
 ### Системный CLI 2.0 vs venv 1.4.4
 - **Симптом**: файл warehouse становится нечитаем для Cube/sqlmesh/node-duckdb.
 - **Причина**: запись/чекпойнт системным DuckDB 2.0 поднимает версию формата файла.
+  Эмпирически (Stage 6 watch, 2026-10-26): 2.0 пишет формат v999; движок 1.4.4 читает
+  только v64–67 → «Trying to read a database file with version number 999…».
 - **Решение**: системный CLI — только `just cli-readonly`. Всё записное — через venv 1.4.4.
+  Следствие: миграция на 2.0 возможна только всем стеком разом (npm-биндинги Cube/Evidence
+  + sqlmesh), см. `docs/plan.md` Stage 6.
 
 ### Cube держит блокировку warehouse
 - **Симптом**: `sqlmesh plan` падает `Could not set lock on file ... Conflicting lock is held in node`.
