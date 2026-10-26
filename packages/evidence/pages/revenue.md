@@ -7,7 +7,7 @@ title: "Выручка: регионы и сегменты"
 > **Назначение:** бизнес-дашборд «где мы зарабатываем». Все метрики вычислены
 > **Cube** (материализация `sources/cube/kpi.sql`, `by_region.sql`, `by_segment.sql`,
 > `region_segment.sql` — SQL выполнен через Cube SQL API), страница только фильтрует.
-> Сверка цифр — [Верификация](verification) (`total_revenue`, `revenue_by_region`, `revenue_by_segment`).
+> Сверка цифр — [Верификация](/verification) (`total_revenue`, `revenue_by_region`, `revenue_by_segment`).
 
 ```sql kpi
 select * from cube.kpi

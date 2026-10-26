@@ -6,7 +6,7 @@ title: "Доставка"
 
 > **Назначение:** shipping performance. Метрики вычислены **Cube**
 > (`sources/cube/by_mode.sql`, `returns.sql`, `delay.sql`), страница только
-> отображает. Сверка — [Верификация](verification)
+> отображает. Сверка — [Верификация](/verification)
 > (`avg_discount_by_ship_mode`, `lines_by_return_flag`).
 
 ```sql by_mode

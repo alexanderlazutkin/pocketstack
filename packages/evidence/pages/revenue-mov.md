@@ -9,7 +9,7 @@ title: "Выручка по месяцам: отклонения"
 > Отклонения вычисляет **Cube** — куб `sales_mov` (логика в семантическом слое:
 > `packages/cube/model/cubes/sales_mov.cube.yml`), материализуется запросом
 > `sources/cube/sales_mov.sql` (все годы). Страница только выбирает год.
-> Прошлые периоды — серым. Сверка — [Верификация](verification)
+> Прошлые периоды — серым. Сверка — [Верификация](/verification)
 > (`revenue_1996_by_month`, `sales_mov_1997`).
 
 <Dropdown name=year>

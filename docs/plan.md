@@ -1,7 +1,8 @@
 # План настройки и разработки демо-проекта pocketstack
 
 Версия плана: 1.1 (2026-10-25). Обоснование выбора BI — `docs/bi-tools-comparison.md`.
-Нюансы и грабли — `docs/gotchas.md`; протокол оценки запросов — `docs/bench-protocol.md`.
+Нюансы и грабли — `docs/gotchas.md`; протокол оценки запросов — `docs/bench-protocol.md`;
+установка Evidence с нуля — `docs/evidence-setup.md`.
 
 ## 1. Цели и приоритеты
 

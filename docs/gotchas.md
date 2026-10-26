@@ -162,6 +162,8 @@
 - Легаси-шаблон недоустанавливает peer'ы: `@sveltejs/vite-plugin-svelte@^3`
   (под svelte 4.2/vite 5.4) и `autoprefixer` надо доставлять руками
   (`npm i -D ... --legacy-peer-deps`), иначе vite dev падает на старте.
+- Ссылки между страницами — ТОЛЬКО абсолютные (`[X](/x)`): относительная `(verification)`
+  с `/revenue` резолвится в `/revenue/verification` → 404 «page can't be found».
 - Проверка страниц в headless: `scripts/visual-check.mjs` (puppeteer-core +
   системный Chrome из ~/.cache/puppeteer; ждёт 12с на DuckDB-WASM, ловит console
   errors, считает svg/canvas, снимает скриншоты). `__data.json` в dev = null —

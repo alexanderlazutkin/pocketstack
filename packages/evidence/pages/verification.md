@@ -16,7 +16,7 @@ title: "Верификация: 13 golden-вопросов"
 ## total_revenue
 
 > **Проверяет:** общую выручку — все пути дают одну сумму.
-> **Используется:** KPI на [Выручке](revenue).
+> **Используется:** KPI на [Выручке](/revenue).
 
 ```sql
 SELECT SUM(sales.revenue) AS total_revenue FROM sales
@@ -45,7 +45,7 @@ select * from cube.revenue_by_year
 ## revenue_by_region
 
 > **Проверяет:** Какова выручка по регионам клиентов?
-> **Используется:** BarChart «Выручка по регионам» на [Выручке](revenue)
+> **Используется:** BarChart «Выручка по регионам» на [Выручке](/revenue)
 
 ```sql
 SELECT sales.customer_region, SUM(sales.revenue) FROM sales GROUP BY sales.customer_region ORDER BY sales.customer_region
@@ -58,7 +58,7 @@ select * from cube.revenue_by_region
 ## revenue_by_segment
 
 > **Проверяет:** Какова выручка по рыночным сегментам клиентов?
-> **Используется:** BarChart «Выручка по сегментам» на [Выручке](revenue)
+> **Используется:** BarChart «Выручка по сегментам» на [Выручке](/revenue)
 
 ```sql
 SELECT sales.market_segment, SUM(sales.revenue) FROM sales GROUP BY sales.market_segment ORDER BY sales.market_segment
@@ -97,7 +97,7 @@ select * from cube.revenue_1997_by_quarter
 ## avg_discount_by_ship_mode
 
 > **Проверяет:** Каков средний дисконт по способам доставки?
-> **Используется:** таблица скидок на [Доставке](shipping)
+> **Используется:** таблица скидок на [Доставке](/shipping)
 
 ```sql
 SELECT sales.ship_mode, AVG(sales.avg_discount) FROM sales GROUP BY sales.ship_mode ORDER BY sales.ship_mode
@@ -136,7 +136,7 @@ select * from cube.revenue_by_supplier_region
 ## lines_by_return_flag
 
 > **Проверяет:** Сколько строк продаж по флагам возврата?
-> **Используется:** BarChart возвратов на [Доставке](shipping)
+> **Используется:** BarChart возвратов на [Доставке](/shipping)
 
 ```sql
 SELECT sales.return_flag, COUNT(sales.lines_count) FROM sales GROUP BY sales.return_flag ORDER BY sales.return_flag
@@ -149,7 +149,7 @@ select * from cube.lines_by_return_flag
 ## revenue_1996_by_month
 
 > **Проверяет:** Какова выручка по месяцам 1996 года?
-> **Используется:** месячные ряды [Отклонений](revenue-mov)
+> **Используется:** месячные ряды [Отклонений](/revenue-mov)
 
 ```sql
 SELECT sales.month, SUM(sales.revenue) FROM sales WHERE sales.year = 1996 GROUP BY sales.month ORDER BY sales.month
@@ -162,7 +162,7 @@ select * from cube.revenue_1996_by_month
 ## top5_customer_nations_by_revenue
 
 > **Проверяет:** Топ-5 стран клиентов по выручке?
-> **Используется:** топ [Клиентов](top-clients)
+> **Используется:** топ [Клиентов](/top-clients)
 
 ```sql
 SELECT sales.customer_nation, SUM(sales.revenue) FROM sales GROUP BY sales.customer_nation ORDER BY SUM(sales.revenue) DESC LIMIT 5
@@ -175,7 +175,7 @@ select * from cube.top5_customer_nations_by_revenue
 ## sales_mov_1997
 
 > **Проверяет:** Каковы месячная выручка и отклонения YoY/PoP за 1997 (куб sales_mov)?
-> **Используется:** куб `sales_mov`: YoY/PoP отклонения на [Отклонениях](revenue-mov) — считаются в Cube, не в BI и не в таблице DuckDB
+> **Используется:** куб `sales_mov`: YoY/PoP отклонения на [Отклонениях](/revenue-mov) — считаются в Cube, не в BI и не в таблице DuckDB
 
 ```sql
 SELECT sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_pop, SUM(sales_mov.revenue) FROM sales_mov WHERE sales_mov.year = 1997 GROUP BY sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_pop ORDER BY sales_mov.month
