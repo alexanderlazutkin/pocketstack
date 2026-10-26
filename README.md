@@ -13,45 +13,55 @@
 
 ## Цели
 
-1. Показать воспроизводимый, верифицируемый локальный data-стек «мини-предприятие»:
+1. Показать воспроизводимый, проверяемый локальный data-стек на примере масштабируемых
+   данных теста [TPC-H](https://tpc.org/tpch/):
    генерация данных → витрина (звезда) → семантический слой → BI.
-2. Единый источник метрик: **вся логика метрик — в Cube** (семантический слой),
-   BI только показывает; сложные отклонения (YoY/PoP) — в кубах, а не в дашбордах.
+2. Единый источник метрик: **вся логика метрик — в Cube** (ROLAP-семантический слой
+   над витриной в DuckDB); BI-дашборды — только отображение поверх Cube;
+   сложные отклонения (YoY/PoP) — в кубах, а не в дашбордах.
 3. Доказуемость цифр: harness из 13 golden-вопросов сверяет три пути
-   (Cube REST ↔ SQL API ↔ эталонный SQL к витрине) + ground truth из лога DuckDB.
-4. AI-агент без «галлюцинаций»: вся семантика описана в Cube на русском
-   (`description`/`title` каждого члена), агент работает через MCP готовыми
+   (Cube REST ↔ SQL API ↔ эталонный SQL к витрине) + лог выполнения DuckDB.
+4. AI-агент без «галлюцинаций»: использует описание метаданных в Cube на русском, агент работает через MCP с
    метриками и объясняет формулы по сгенерированному SQL, а не по памяти.
 
 ## Архитектура
 
 ```
-                 dbgen(sf=N)                sqlmesh (витрина-звезда)
- TPC-H ─────────────────────▶ raw_tpch ──────────────────────────▶ marts.*
- (duckdb ext)                (схема DuckDB)                    fact_sales + dim_*
-                                                                    │
-                              packages/pocketstack.duckdb ◀─────────┘
-                                    ▲                    ▲
-                          sqlmesh (write)         Cube dev :4000 (REST/GraphQL)
-                                                  Cube SQL API :15432 (pg-wire)
+┌──────────────────────────── Данные ────────────────────────────┐
+│                                                                 │
+│  TPC-H dbgen (sf=N) ──▶ sqlmesh ──▶ DuckDB                      │
+│  (генерация данных)     (витрина-    raw_tpch → marts.*         │
+│                          звезда)      fact_sales + dim_*        │
+└─────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────── Семантический слой ─────────────────────┐
+│  Cube (OSS): view `sales` · куб `sales_mov` (YoY/PoP)           │
+│  ├─ REST / GraphQL API ── :4000                                 │
+│  └─ SQL API (pg-wire) ───── :15432                              │
+└─────────────────────────────────────────────────────────────────┘
+         │                   │                       │
+         ▼                   ▼                       ▼
+  Evidence BI :3000    SQL-клиенты           pocketstack-mcp (stdio)
+  (6 страниц,         (DBeaver / DBX)        cube_meta · cube_load ·
+  DuckDB-WASM)                                 cube_sql · sql_api
                                                         │
-                              Evidence :3000 ────────────┘ (материализация parquet,
-                              (DuckDB-WASM в браузере)     рантайм от Cube не зависит)
+                                                        ▼
+                                                 AI-агент (opencode /
+                                                 Claude Code)
 
-  SQL-клиенты (DBeaver/DBX) ──:15432──▶ Cube (живая семантика)
-  AI-агент (opencode/Claude) ──MCP stdio──▶ cube_meta / cube_load / cube_sql / sql_api
-  harness: 13 golden-вопросов ─▶ REST + SQL API + эталонный SQL + лог DuckDB
-  ```
+  harness ─ 13 golden-вопросов ─▶ REST ↔ SQL API ↔ эталонный SQL + лог DuckDB
+```
 
-- **Слой данных**: `packages/sqlmesh` — seed TPC-H (параметр `sf`), модели витрины.
-- **Семантика**: `packages/cube` — view `sales`, куб `sales_mov` (YoY/PoP-отклонения),
-  KPI-measures; каждый куб/член описан по-русски (`title`/`description` — AI-context).
-  SQL API для любых pg-клиентов.
-- **BI**: `packages/evidence` — 6 страниц: выручка, отклонения, клиенты, доставка,
+- **Данные**: TPC-H dbgen (масштабируемый объём, `sf`) → sqlmesh строит витрину-звезду в DuckDB.
+- **Семантика**: Cube — view `sales`, куб `sales_mov` (YoY/PoP-отклонения), KPI-measures;
+  каждый куб/член описан по-русски (`title`/`description` — AI-context).
+- **BI**: Evidence — 6 страниц: выручка, отклонения, клиенты, доставка,
   верификация (13 golden-вопросов на одной странице).
-- **AI-агент**: `packages/mcp` — тонкий MCP-сервер (FastMCP, stdio) вокруг Cube:
+- **SQL-клиенты**: любой pg-клиент через SQL API :15432 — живая семантика без Cube UI.
+- **AI-агент**: pocketstack-mcp — тонкий MCP-сервер (FastMCP, stdio) поверх Cube:
   `cube_meta` / `cube_load` / `cube_sql` / `sql_api`, все read-only.
-- **Проверки**: `packages/harness` — parity/determinism/ground-truth тесты, bench.
+- **Проверки**: harness — parity/determinism/ground-truth тесты, bench.
 
 ## Быстрый старт
 
@@ -97,10 +107,15 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 | `docs/user-guide.md` | **руководство пользователя**: установка, запуск, разблокировка DuckDB, сценарий сверки |
 | `docs/plan.md` | план стадий (со статусами) + реестр вопросов |
 | `docs/evidence-setup.md` | Evidence: установка с нуля (runbook) |
-| `docs/cube-sql-clients.md` | DBeaver/DBX к SQL API Cube |
 | `docs/cube-mcp.md` | MCP-сервер Cube для AI-агентов: семантика на русском, 4 сценария проверки, подключение |
+| `docs/cube-sql-clients.md` | DBeaver/DBX к SQL API Cube |
+| `docs/cube-oss-vs-enterprise.md` | Cube OSS vs Enterprise: что есть в self-hosted, лимиты Cloud, OSS-альтернативы |
+| `docs/bi-tools-comparison.md` | сравнение BI-инструментов (выбор Evidence) |
 | `docs/bench-protocol.md` | протокол оценки запросов |
 | `docs/gotchas.md` | нюансы и грабли: симптом → причина → решение |
+
+Skills для AI-агента (правила работы с кубами pocketstack через MCP):
+`.opencode/skills/` — `cube-explore-model`, `cube-build-model`, `cube-run-query`.
 
 ## Управление стеком
 
