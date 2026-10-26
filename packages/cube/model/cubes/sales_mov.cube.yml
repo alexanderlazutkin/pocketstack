@@ -33,6 +33,15 @@ cubes:
         sql: revenue
         type: sum
         format: currency
+      # KPI-агрегаты года: Σ месячных абс. отклонений и среднее отн. (в п.п.).
+      # Rollup идёт по grain подзапроса (year, month), т.е. ровно сумма/среднее
+      # строк sales_mov за год — то, что дашборд «Отклонения» показывает в KPI.
+      - name: abs_yoy_sum
+        sql: abs_yoy
+        type: sum
+      - name: rel_yoy_avg
+        sql: rel_yoy
+        type: avg
 
     dimensions:
       - name: ym

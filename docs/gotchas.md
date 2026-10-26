@@ -108,7 +108,7 @@
 
 ---
 
-## Evidence 40.1.8 (Stage 4, в процессе)
+## Evidence 40.1.8 (Stage 4 — ✅ закрыта 2026-10-26)
 
 ### Архитектура данных (важно!)
 - **Инлайн-запросы в страницах (` ```sql name `) исполняются в DuckDB-WASM** поверх
@@ -143,3 +143,26 @@
   переписывания не проходят. Решение: вычисляемое поле в модель (days_in_transit)
   или куб с SQL (sales_mov).
 - Оконные функции и CTE — РАБОТАЮТ (проверено: SUM() OVER, WITH + self-join).
+
+### Компоненты: подводные камни (проверено в браузере, 2026-10-26)
+- `data=` в компонентах ТОЛЬКО в скобках: `data={query}`. Без скобок строка уходит
+  в проп → `TypeError: data.map is not a function`, страница падает целиком.
+- `summaryTotal/summarySum/summaryAvg` у BigValue **НЕ СУЩЕСТВУЮТ** в
+  core-components 5.4.2 (молча игнорируются → показывается первая строка).
+  Агрегаты: либо `<Value data agg=sum|avg|min|max|median>` (только SDK-Query),
+  либо — по нашему правилу «метрики в Cube» — measures куба (sales_mov_kpi).
+- `fmt=pct/pct1/pct2` умножают на 100 (ждут дробь). Если куб отдаёт процент-ПУНКТЫ
+  (наш rel_yoy = 100·Δ/база) — pct даёт ×100 ошибку (0.55% → «55.5%»). Правильно:
+  fmt=num2 + «%»/«п.п.» в заголовке.
+- `sort=revenue-desc` невалиден и валит DataTable: только `sort=revenue desc`
+  (в кавычках!) или `sort=revenue`.
+- Golden-SQL без алиаса (`SELECT SUM(sales.revenue) FROM sales`) материализуется
+  с колонкой буквально `"sum(sales.revenue)"` — ссылаться в запросе страницы только
+  через двойные кавычки, лучше сразу алиасовать в v_*-обёртке.
+- Легаси-шаблон недоустанавливает peer'ы: `@sveltejs/vite-plugin-svelte@^3`
+  (под svelte 4.2/vite 5.4) и `autoprefixer` надо доставлять руками
+  (`npm i -D ... --legacy-peer-deps`), иначе vite dev падает на старте.
+- Проверка страниц в headless: `scripts/visual-check.mjs` (puppeteer-core +
+  системный Chrome из ~/.cache/puppeteer; ждёт 12с на DuckDB-WASM, ловит console
+  errors, считает svg/canvas, снимает скриншоты). `__data.json` в dev = null —
+  НОРМА (wasm исполняет запросы в браузере), реальная проверка только через DOM.

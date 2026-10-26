@@ -125,11 +125,21 @@ pocketstack/
   · `runs/<ts>/summary.{csv,md}` (сводные) · `index.md` (журнал прогонов)
 - Базовый ориентир sf=1: REST 6–10 мс, SQL API ~50 мс (накладные pg-wire), REF 3–40 мс
 
-### Stage 4 — Evidence BI
-- `npm create evidence@latest` в `packages/evidence`
+### Stage 4 — Evidence BI — ✅ 2026-10-26
+- `npm create evidence@latest` в `packages/evidence` — **сломан** (404/нет bin); развёрнут
+  legacy-шаблон `github.com/evidence-dev/template` (ветка LEGACY), Evidence 40.1.8,
+  `npm ci --legacy-peer-deps`; dev требует Node 20 (локально `~/.local/opt/node-v20…`)
 - `connection.yaml`: `cube` (:15432) + `duckdb_local` (read-only)
-- 3–4 дашборда: выручка по регионам/сегментам, топ-клиенты, shipping performance
-- **Критерий приёмки**: дашборды собираются из Cube, метрики совпадают с harness
+- Архитектура: инлайн-запросы страниц исполняются в DuckDB-WASM поверх parquet,
+  материализованных из Cube (`npx evidence sources`, `sources/cube/*.sql` = golden-SQL
+  дословно) — 22 таблицы; к живому Cube BI не ходит в рантайме
+- 6 страниц: index, revenue (регионы/сегменты), revenue-mov (YoY/PoP отклонения,
+  год-дропдаун), top-clients, shipping, verification (13 golden-вопросов с «Назначением»)
+- Отклонения YoY/PoP считаются в Cube (куб `sales_mov`, CTE+self-join; KPI-агрегаты —
+  measures `abs_yoy_sum`/`rel_yoy_avg`); `days_in_transit` в факте (TDD, 39/39)
+- **Критерий приёмки**: ✅ метрики дашбордов = harness (sources = golden-SQL дословно,
+  паритет по построению; Σ выручки на /verification = KPI /revenue = 218,102,223,885.00;
+  все 6 страниц рендерятся без ошибок консоли — `scripts/visual-check.mjs`)
 
 ### Stage 5 — Claude Code MCP (запасной интерактив)
 - Тот же Cube MCP в Claude Code; сценарий как для opencode
@@ -169,3 +179,7 @@ pocketstack/
 | 2 | 2026-10-25 | `docs/gotchas.md` — living doc нюансов | Stage 3.1 |
 | 3 | 2026-10-25 | Протокол оценки запросов + лог `results/` (`just bench`) | Stage 3.2 |
 | 4 | 2026-10-25 | `just` установлен через `uv tool install rust-just` | окружение |
+| 5 | 2026-10-26 | `days_in_transit` в `marts.fact_sales` (TDD: контракт+sanity, 39/39) — AVG(дата−дата) в Cube SQL API не работает (interval) | Stage 4 |
+| 6 | 2026-10-26 | Куб `sales_mov`: YoY/PoP отклонения (абс.+отн.) в семантическом слое, golden q13 | Stage 4 |
+| 7 | 2026-10-26 | Evidence-дашборды (6 страниц) + верификационная страница с cross-ссылками на harness-отчёты; Evidence-колонки в verify-report/bench-summary | Stage 4 |
+| 8 | 2026-10-26 | KPI-агрегаты года как measures куба (`abs_yoy_sum`, `rel_yoy_avg`) — метрики в Cube, BI только показывает | Stage 4 |

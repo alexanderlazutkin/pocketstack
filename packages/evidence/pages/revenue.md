@@ -35,7 +35,7 @@ select * from cube.by_segment
 select * from cube.region_segment
 ```
 
-<DataTable data={region_segment} rows=all sort=revenue-desc>
+<DataTable data={region_segment} rows=all sort="revenue desc">
   <Column id=region title="Регион" />
   <Column id=segment title="Сегмент" />
   <Column id=revenue title="Выручка" fmt=num2 align=right />

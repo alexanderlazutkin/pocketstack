@@ -22,9 +22,13 @@ title: "Выручка по месяцам: отклонения"
 select * from cube.sales_mov where year = ${inputs.year.value} order by month
 ```
 
-<BigValue data={mov} value=revenue fmt=num2 title="Выручка, Σ месяцев" summaryTotal />
-<BigValue data={mov} value=abs_yoy fmt=num2 title="Δ YoY, абс." summarySum />
-<BigValue data={mov} value=rel_yoy fmt=pct1 title="Δ YoY, %" summaryAvg />
+```sql mov_kpi
+select * from cube.sales_mov_kpi where year = ${inputs.year.value}
+```
+
+<BigValue data={mov_kpi} value=revenue fmt=num2 title="Выручка, Σ месяцев" />
+<BigValue data={mov_kpi} value=abs_yoy_sum fmt=num2 title="Δ YoY, абс., Σ" />
+<BigValue data={mov_kpi} value=rel_yoy_avg fmt=num2 title="Δ YoY, % (ср., п.п.)" />
 
 ## Текущий год против прошлого (прошлый год — серым)
 
@@ -37,10 +41,10 @@ select * from cube.sales_mov where year = ${inputs.year.value} order by month
   <Column id=revenue title="Выручка" fmt=num2 align=right />
   <Column id=revenue_ly title="LY" fmt=num2 align=right />
   <Column id=abs_yoy title="Δ YoY, абс." fmt=num2 align=right contentType=colorscale scaleColor=business />
-  <Column id=rel_yoy title="Δ YoY, %" fmt=pct1 align=right contentType=colorscale scaleColor=business />
+  <Column id=rel_yoy title="Δ YoY, %" fmt=num2 align=right contentType=colorscale scaleColor=business />
   <Column id=revenue_pop title="Пред. мес." fmt=num2 align=right />
   <Column id=abs_pop title="Δ PoP, абс." fmt=num2 align=right contentType=colorscale scaleColor=business />
-  <Column id=rel_pop title="Δ PoP, %" fmt=pct1 align=right contentType=colorscale scaleColor=business />
+  <Column id=rel_pop title="Δ PoP, %" fmt=num2 align=right contentType=colorscale scaleColor=business />
 </DataTable>
 
 <Details title="Методика">
