@@ -59,6 +59,12 @@ evidence:
     scripts/render-evidence-connection.sh
     cd packages/evidence && PATH=$(HOME)/.local/opt/node-v20.19.0-linux-x64/bin:$(PATH) npm run dev
 
+# RBAC (docs/cube-rbac.md): JWT для ручных проверок REST под ролью.
+# Стек ПО УМОЛЧАНИЮ работает под admin — токен user нужен только для сценария B.
+#   just token            → admin (по умолчанию);   just token user AFRICA
+token group="admin" region="":
+    @{{python}} python scripts/make-cube-token.py --group {{group}} {{ if region != "" { "--region " + region } else { "" } }}
+
 # ВНИМАНИЕ: системный DuckDB CLI 2.0 — к файлам проекта ТОЛЬКО read-only.
 # Запись/чекпойнт версией 2.0 сделает файл нечитаемым для 1.4.4 (Cube, Evidence, sqlmesh).
 cli-readonly:
