@@ -11,6 +11,7 @@
 | API: REST, GraphQL, SQL (pg-wire) | ✅ |
 | Pre-aggregations (внешние rollup-таблицы) | ✅ |
 | In-memory кэширование + Cube Store (OSS) | ✅ |
+| **Access policies (RBAC): member_level + row_level + member_masking** (PR cube-js/cube.js#8766, 2024; masking — 2026) | ✅ ([демо pocketstack](cube-rbac.md)) |
 | Row-Level Security через security context | ✅ |
 | JWT-аутентификация, генерация токенов | ✅ |
 | Несколько источников данных, join across sources | ✅ |
@@ -29,7 +30,7 @@
 | Query History + retention | — | ✅ (1–7 дней, Enterprise — custom) |
 | Monitoring integrations (Datadog и т.п.) | — | ✅ Enterprise |
 | SSO (Okta, SAML, SCIM) | — | ✅ Enterprise |
-| Custom Roles, Explorer role | — | ✅ Enterprise |
+| Custom Roles, Explorer role | — (в OSS — свои группы в `contextToGroups` + `access_policy` руками) | ✅ Enterprise |
 | Audit Logging (полный аудит) | — | ✅ Enterprise |
 | VPC Peering / AWS PrivateLink | — | ✅ Enterprise |
 | Dedicated VPC / BYOC / BYOLLM | — | ✅ Enterprise |

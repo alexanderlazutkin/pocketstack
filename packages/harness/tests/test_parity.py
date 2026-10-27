@@ -1,7 +1,6 @@
 """(a) Rows-паритет: /v1/load vs SQL API (pg-wire) vs reference DuckDB."""
 
 import pytest
-
 from harness.clients import reference_query, rest_load, rows_rest, sqlapi_query
 from harness.golden import GOLDEN
 from harness.normalize import norm_rows

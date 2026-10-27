@@ -33,6 +33,15 @@ cubes:
       LEFT JOIN m prev ON prev.ym = cur.ym - 1
     joins: []
 
+    # RBAC (docs/cube-rbac.md): отклонения — аналитика админов; user получает
+    # только витрину sales со своими 3 мерами. Deny by default.
+    access_policy:
+      - group: admin
+        member_level:
+          includes: "*"
+        row_level:
+          allow_all: true
+
     measures:
       - name: revenue
         title: Выручка

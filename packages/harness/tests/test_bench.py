@@ -1,7 +1,6 @@
 """Юнит-тесты лога оценок в results/ (TDD, RED до новой версии harness.bench)."""
 
 import pytest
-
 from harness.bench import append_index, write_run
 
 

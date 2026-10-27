@@ -8,7 +8,6 @@
 import json
 
 import pytest
-
 from cube_mcp.client import cube_load, cube_meta, cube_sql, sql_api
 
 

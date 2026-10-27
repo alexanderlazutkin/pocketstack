@@ -39,9 +39,17 @@ verify:
 bench:
     cd packages/harness && {{python}} python -m harness.bench
 
-# Stage 2: cube dev-сервер (REST/GraphQL :4000 + SQL API :15432).
-# CUBEJS_DUCKDB_QUERY_LOG включает ground truth для `just verify`.
+# Stage 2: cube-сервер (REST/GraphQL :4000 + SQL API :15432) в прод-режиме:
+# RBAC (docs/cube-rbac.md) требует ВКЛЮЧЁННЫХ проверок авторизации —
+# dev mode их отключает (каждый запрос = admin). CUBEJS_DUCKDB_QUERY_LOG
+# включает ground truth для `just verify`.
 cube:
+    mkdir -p artifacts
+    cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm start
+
+# То же в dev mode: playground + hot-reload модели на :4000.
+# ВНИМАНИЕ: авторизация отключена → access_policy НЕ применяется.
+cube-dev:
     mkdir -p artifacts
     cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm run dev
 

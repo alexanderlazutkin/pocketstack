@@ -7,7 +7,7 @@ float/Decimal, reference (DuckDB) — Decimal/int. Канонизация сво
 
 import hashlib
 import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 _WS = re.compile(r"\s+")
 

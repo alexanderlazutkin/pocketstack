@@ -25,14 +25,13 @@ async def test_stdio_list_tools_and_call_meta():
         args=["-m", "cube_mcp"],
         cwd=str(REPO),
     )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            tools = await session.list_tools()
-            names = {t.name for t in tools.tools}
-            assert {"cube_meta", "cube_load", "cube_sql", "sql_api"} <= names
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+        names = {t.name for t in tools.tools}
+        assert {"cube_meta", "cube_load", "cube_sql", "sql_api"} <= names
 
-            result = await session.call_tool("cube_meta", {})
-            payload = json.loads(result.content[0].text)
-            cubes = {c["name"] for c in payload["cubes"]}
-            assert "sales" in cubes
+        result = await session.call_tool("cube_meta", {})
+        payload = json.loads(result.content[0].text)
+        cubes = {c["name"] for c in payload["cubes"]}
+        assert "sales" in cubes

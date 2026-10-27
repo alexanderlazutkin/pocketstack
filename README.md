@@ -2,7 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![tests](https://img.shields.io/badge/tests-117%20%E2%9C%94-brightgreen)](#проверки)
-[![verify](https://img.shields.io/badge/harness%20verify-69%2F69-brightgreen)](#проверки)
+[![verify](https://img.shields.io/badge/harness%20verify-88%2F88-brightgreen)](#проверки)
 
 Демонстрационный стек локальной аналитики: **TPC-H → DuckDB → sqlmesh → Cube → Evidence**
 с верификационным harness'ом (TDD), протоколом оценки производительности запросов
@@ -25,33 +25,6 @@
    метриками и объясняет формулы по сгенерированному SQL, а не по памяти.
 
 ## Архитектура
-
-```
-┌──────────────────────────── Данные ────────────────────────────┐
-│                                                                 │
-│  TPC-H dbgen (sf=N) ──▶ sqlmesh ──▶ DuckDB                      │
-│  (генерация данных)     (витрина-    raw_tpch → marts.*         │
-│                          звезда)      fact_sales + dim_*        │
-└─────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────── Семантический слой ─────────────────────┐
-│  Cube (OSS): view `sales` · куб `sales_mov` (YoY/PoP)           │
-│  ├─ REST / GraphQL API ── :4000                                 │
-│  └─ SQL API (pg-wire) ───── :15432                              │
-└─────────────────────────────────────────────────────────────────┘
-         │                   │                       │
-         ▼                   ▼                       ▼
-  Evidence BI :3000    SQL-клиенты           pocketstack-mcp (stdio)
-  (6 страниц,         (DBeaver / DBX)        cube_meta · cube_load ·
-  DuckDB-WASM)                                 cube_sql · sql_api
-                                                        │
-                                                        ▼
-                                                 AI-агент (opencode /
-                                                 Claude Code)
-
-  harness ─ 13 golden-вопросов ─▶ REST ↔ SQL API ↔ эталонный SQL + лог DuckDB
-```
 
 ![Архитектура pocketstack](artifacts/Arch.png)
 
@@ -76,7 +49,7 @@ cd packages/evidence && npm ci --legacy-peer-deps && cd .. # BI-пакет
 scripts/stack.sh rebuild          # БД с нуля (sf=1) + витрины + стек + sources
 # или по шагам: just seed && just apply && scripts/stack.sh up && scripts/stack.sh sources
 
-just verify                       # 69 тестов: паритет 3 путей (нужен запущенный стек)
+just verify                       # 88 тестов: паритет 3 путей + RBAC-матрица (нужен запущенный стек)
 just bench                        # 13 вопросов, latency 3 путей
 ```
 
@@ -97,6 +70,10 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 
 - Креды/токены — только в `.env` (в git не попадает; шаблон `.env.example`).
   Код не содержит секретов и фолбэков: без `.env` компоненты не стартуют.
+- **RBAC (docs/cube-rbac.md)**: группы из подписанных JWT (`contextToGroups`) +
+  `access_policy` в модели; демо «admin видит всё / user — 3 меры и только свой
+  регион» на REST, SQL API (:15432, per-role учётки) и MCP. Прод-режим Cube:
+  только JWT, сырой секрет → 403.
 - `connection.yaml` Evidence с реальными кредами генерируется из `.env`
   (`scripts/render-evidence-connection.sh`) и тоже вне git.
 - Известное ограничение: Cube dev слушает все интерфейсы (0.0.0.0, опции привязки
@@ -110,6 +87,7 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 | `docs/plan.md` | план стадий (со статусами) + реестр вопросов |
 | `docs/evidence-setup.md` | Evidence: установка с нуля (runbook) |
 | `docs/cube-mcp.md` | MCP-сервер Cube для AI-агентов: семантика на русском, 4 сценария проверки, подключение |
+| `docs/cube-rbac.md` | **RBAC в Cube OSS**: access_policy + группы из JWT, демо «Admin vs User» (REST/SQL API/MCP) |
 | `docs/cube-sql-clients.md` | DBeaver/DBX к SQL API Cube |
 | `docs/cube-oss-vs-enterprise.md` | Cube OSS vs Enterprise: что есть в self-hosted, лимиты Cloud, OSS-альтернативы |
 | `docs/bi-tools-comparison.md` | сравнение BI-инструментов (выбор Evidence) |
@@ -127,7 +105,7 @@ Skills для AI-агента (правила работы с кубами pocke
 ## Проверки
 
 `just test` — 117 тестов (модель, harness, MCP: unit + e2e);
-`just verify` — 69 проверок живого стека (REST ↔ SQL API ↔ reference ↔ ground truth);
+`just verify` — 88 проверок живого стека (REST ↔ SQL API ↔ reference ↔ ground truth + RBAC «Admin vs User»);
 итог — `artifacts/verify-report.md` (13/13 по всем осям).
 
 ## Статусы стадий

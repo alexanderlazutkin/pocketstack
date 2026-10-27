@@ -72,7 +72,7 @@ cmd_up() {
         log "Cube: запускаю..."
         ( cd "$REPO_ROOT/packages/cube" && \
           setsid nohup env CUBEJS_DUCKDB_QUERY_LOG="$REPO_ROOT/artifacts/duckdb_query_log.csv" \
-          npm run dev > "$CUBE_LOG" 2>&1 & echo $! > "$RUN_DIR/cube.pid" )
+          npm start > "$CUBE_LOG" 2>&1 & echo $! > "$RUN_DIR/cube.pid" )
         wait_port http://localhost:4000 "Cube" 90
     fi
     # Evidence

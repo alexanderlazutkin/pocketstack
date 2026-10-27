@@ -41,3 +41,52 @@ views:
           - quarter
           - month
           - day
+
+    # RBAC (docs/cube-rbac.md): политика витрины. admin — всё; user — ровно
+    # 3 меры (выручка, кол-во единиц, кол-во заказов) и строки только своего
+    # региона (region приходит подписанным claim'ом токена / учётки SQL API).
+    # Все прочие группы — deny by default.
+    access_policy:
+      - group: admin
+        member_level:
+          includes: "*"
+        row_level:
+          allow_all: true
+
+      - group: user
+        member_level:
+          includes:
+            - revenue
+            - quantity
+            - orders_count
+            - customer_nation
+            - customer_region
+            - market_segment
+            - brand
+            - manufacturer
+            - part_type
+            - supplier_nation
+            - supplier_region
+            - order_status
+            - order_priority
+            - order_date
+            - date_day
+            - year
+            - quarter
+            - month
+            - day
+            - line_key
+            - order_id
+            - line_number
+            - return_flag
+            - line_status
+            - ship_mode
+            - days_in_transit
+            - ship_date
+            - commit_date
+            - receipt_date
+        row_level:
+          filters:
+            - member: customer_region
+              operator: equals
+              values: ["{ securityContext.region }"]

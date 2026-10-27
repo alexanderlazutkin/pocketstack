@@ -32,7 +32,7 @@ git clone <repo-url> pocketstack && cd pocketstack
 
 # Секреты (вне git): скопируйте шаблон и сгенерируйте свои значения
 cp .env.example .env
-$EDITOR .env        # CUBEJS_API_SECRET и CUBESQL_PASSWORD: openssl rand -hex 32
+$EDITOR .env        # CUBEJS_API_SECRET, CUBESQL_PASSWORD, CUBESQL_RBAC_PASSWORD: openssl rand -hex 32
 
 # Python-окружение (sqlmesh, harness, duckdb 1.4.4)
 uv sync

@@ -16,8 +16,9 @@ def _git(path: Path) -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         ).stdout.strip()
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         return "n/a"
 
 
@@ -26,8 +27,8 @@ def write_report(results: dict, path: Path) -> None:
     lines = [
         "# pocketstack verify-report",
         "",
-        f"_сгенерирован: {datetime.datetime.now().isoformat(timespec='seconds')}, "
-        f"commit `{_git(path.parent.parent)}`_",
+        (f"_сгенерирован: {datetime.datetime.now().isoformat(timespec='seconds')}, "
+        f"commit `{_git(path.parent.parent)}`_"),
         "",
         "| Вопрос | rows: REST↔SQLAPI↔REF | SQL-hash (N прогонов) | ground truth (лог DuckDB) | Evidence |",
         "|---|---|---|---|---|",
@@ -51,8 +52,8 @@ def write_report(results: dict, path: Path) -> None:
     truth_ok = sum(1 for v in truth.values() if v)
     lines += [
         "",
-        f"**Итог**: rows-паритет {passed}/{total}, SQL-детерминизм {det_ok}/{total}, "
-        f"ground truth {truth_ok}/{total}.",
+        (f"**Итог**: rows-паритет {passed}/{total}, SQL-детерминизм {det_ok}/{total}, "
+        f"ground truth {truth_ok}/{total}."),
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")

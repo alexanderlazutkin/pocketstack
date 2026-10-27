@@ -5,10 +5,16 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from harness.env import load_env, required
+from harness.tokens import mint_cube_token
 
 load_env()  # .env из корня репо: секреты не в коде (см. .env.example)
+
+# Токен admin для REST: JWT, подписанный CUBEJS_API_SECRET. Прод-режим Cube
+# (RBAC, docs/cube-rbac.md) принимает только подписанные JWT — сырой секрет → 403.
+CUBE_TOKEN_VALUE = mint_cube_token(
+    required("CUBEJS_API_SECRET"), {"groups": ["admin"]}, ttl_seconds=12 * 3600
+)
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -20,14 +26,13 @@ QUERY_LOG = ARTIFACTS / "duckdb_query_log.csv"
 REPORT = ARTIFACTS / "verify-report.md"
 
 CUBE_URL_VALUE = os.environ.get("CUBEJS_URL", "http://localhost:4000")
-CUBE_TOKEN_VALUE = required("CUBEJS_API_SECRET")
-SQLAPI_DSN = dict(
-    host=os.environ.get("CUBESQL_HOST", "localhost"),
-    port=int(os.environ.get("CUBESQL_PORT", "15432")),
-    user=required("CUBESQL_USER"),
-    password=required("CUBESQL_PASSWORD"),
-    dbname="default",
-)
+SQLAPI_DSN = {
+    "host": os.environ.get("CUBESQL_HOST", "localhost"),
+    "port": int(os.environ.get("CUBESQL_PORT", "15432")),
+    "user": required("CUBESQL_USER"),
+    "password": required("CUBESQL_PASSWORD"),
+    "dbname": "default",
+}
 STRICT = os.environ.get("HARNESS_STRICT", "") == "1"
 
 
@@ -35,7 +40,12 @@ def _cube_reachable(base: str) -> bool:
     import requests
 
     try:
-        r = requests.get(f"{CUBE_URL_VALUE}/cubejs-api/v1/meta", timeout=3)
+        # прод-режим (RBAC): /meta без подписанного JWT даёт 403 — идём с токеном admin
+        r = requests.get(
+            f"{base}/cubejs-api/v1/meta",
+            headers={"Authorization": CUBE_TOKEN_VALUE},
+            timeout=3,
+        )
         return r.status_code == 200
     except requests.RequestException:
         return False

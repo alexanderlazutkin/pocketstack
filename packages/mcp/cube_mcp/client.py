@@ -1,6 +1,9 @@
 """Тонкий слой доступа к Cube для MCP-tools: REST (:4000) + pg-wire SQL API (:15432).
 
 Креды — из .env (harness.env.load_env): в коде секретов нет.
+REST-токен: CUBEJS_API_TOKEN (готовый JWT любой роли, см. scripts/make-cube-token.py)
+или admin-JWT, автоматически подписанный на CUBEJS_API_SECRET (прод-режим Cube
+принимает только JWT — сырой секрет даёт 403; RBAC — docs/cube-rbac.md).
 Все функции возвращают JSON-строку — так их отдаёт MCP-клиенту FastMCP.
 """
 
@@ -10,20 +13,22 @@ import time
 
 import psycopg
 import requests
-
 from harness.env import load_env, required
+from harness.tokens import mint_cube_token
 
 load_env()
 
 BASE = os.environ.get("CUBEJS_URL", "http://localhost:4000")
-TOKEN = required("CUBEJS_API_SECRET")
-SQLAPI = dict(
-    host=os.environ.get("CUBESQL_HOST", "localhost"),
-    port=int(os.environ.get("CUBESQL_PORT", "15432")),
-    user=required("CUBESQL_USER"),
-    password=required("CUBESQL_PASSWORD"),
-    dbname="default",
+TOKEN = os.environ.get("CUBEJS_API_TOKEN") or mint_cube_token(
+    required("CUBEJS_API_SECRET"), {"groups": ["admin"]}, ttl_seconds=12 * 3600
 )
+SQLAPI = {
+    "host": os.environ.get("CUBESQL_HOST", "localhost"),
+    "port": int(os.environ.get("CUBESQL_PORT", "15432")),
+    "user": required("CUBESQL_USER"),
+    "password": required("CUBESQL_PASSWORD"),
+    "dbname": "default",
+}
 
 _TIMEOUT = 60
 _READONLY_PREFIXES = ("SELECT", "WITH", "SHOW", "DESCRIBE", "EXPLAIN")

@@ -12,7 +12,6 @@
 import re
 
 import pytest
-
 from harness.clients import rest_load, rest_sql
 from harness.golden import GOLDEN
 from harness.normalize import norm_sql
@@ -34,7 +33,7 @@ def test_ground_truth(g, cube_up, query_log_path, results, CUBE_URL, CUBE_TOKEN)
 
     timing_line = next((ln for ln in lines if expected in ln), None)
     assert timing_line is not None, (
-        f"SQL найден, но без строки таймингов (старый формат лога?) — перезапустите куб: scripts/stack.sh restart"
+        "SQL найден, но без строки таймингов (старый формат лога?) — перезапустите куб: scripts/stack.sh restart"
     )
     m = _TIMING_RE.match(timing_line)
     assert m, f"строка лога без полей времени/длительности: {timing_line[:120]}"

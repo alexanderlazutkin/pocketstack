@@ -51,8 +51,8 @@ def sql_api_query() -> dict:
             "-F",
             "|",
             "-c",
-            'SELECT "customer_region", SUM("revenue") FROM "sales" '
-            'GROUP BY "customer_region" ORDER BY "customer_region"',
+            ('SELECT "customer_region", SUM("revenue") FROM "sales" '
+            'GROUP BY "customer_region" ORDER BY "customer_region"'),
         ],
         capture_output=True,
         text=True,

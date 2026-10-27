@@ -6,6 +6,23 @@ cubes:
       Источник — TPC-H LINEITEM, дополненная заказчиком из ORDERS. Grain: (order_id, line_number).
       Используется через витрину `sales`; напрямую лучше не запрашивать.
     sql: SELECT * FROM pocketstack.marts.fact_sales
+
+    # RBAC (docs/cube-rbac.md): факт — только через витрину sales.
+    # RLS Cube при запросе ЧЕРЕЗ витрину авто-выдаёт члены подлежащего куба
+    # (view = security boundary), а ПРЯМЫЕ запросы факта эта политика режет
+    # в ноль всем, кроме admin: member-доступ «*» с пустым includes = deny
+    # (политики объединяются: admin-политика возвращает админу всё).
+    access_policy:
+      - group: admin
+        member_level:
+          includes: "*"
+        row_level:
+          allow_all: true
+
+      - group: "*"
+        member_level:
+          includes: []
+
     joins:
       - name: dim_customer
         sql: "{CUBE}.customer_id = dim_customer.customer_id"

@@ -78,6 +78,53 @@ module.exports = {
     }),
   apiSecret: requiredEnv('CUBEJS_API_SECRET'),
   sqlPort: 15432,
-  sqlUser: requiredEnv('CUBESQL_USER'),
-  sqlPassword: requiredEnv('CUBESQL_PASSWORD'),
+  // pg-wire (psql/psycopg): в dev mode порт 15432 подразумевается, в прод — нет.
+  pgSqlPort: 15432,
+  // Без Cube Store: в прод-режиме Cube по умолчанию хочет его для очереди/кэша —
+  // локальное DuckDB-демо работает целиком in-memory.
+  cacheAndQueueDriver: 'memory',
+
+  // --- RBAC (docs/cube-rbac.md) ---------------------------------------------
+  // Группы назначаются ТОЛЬКО из подписанного контекста:
+  //  REST (:4000)   — claims JWT (scripts/make-cube-token.py) → securityContext;
+  //  SQL API (:15432) — securityContext назначает checkSqlAuth по учётке.
+  // Прод-режим Cube принимает только подписанные JWT (сырой секрет → 403),
+  // поэтому непрошедший авторизацию запрос сюда вообще не доходит.
+  // Дальше режут access_policy в модели (views/sales.view.yml + кубы факта);
+  // группа без политики = deny by default.
+  contextToGroups: async (context) => {
+    const groups = context && context.securityContext && context.securityContext.groups;
+    return Array.isArray(groups) ? groups.filter((g) => typeof g === 'string') : [];
+  },
+
+  // Per-role учётки SQL API: креды в .env, группы — в securityContext.
+  checkSqlAuth: async (req, user, password) => {
+    const accounts = {
+      [requiredEnv('CUBESQL_USER')]: {
+        password: requiredEnv('CUBESQL_PASSWORD'),
+        superuser: true,
+        securityContext: { groups: ['admin'] },
+      },
+      [requiredEnv('CUBESQL_RBAC_USER')]: {
+        password: requiredEnv('CUBESQL_RBAC_PASSWORD'),
+        superuser: false,
+        securityContext: {
+          groups: ['user'],
+          region: process.env.CUBE_RBAC_USER_REGION || 'AFRICA',
+        },
+      },
+    };
+    const account = accounts[user];
+    if (!account) {
+      throw new Error(`SQL API: пользователь "${user}" не существует`);
+    }
+    if (password !== account.password) {
+      throw new Error(`SQL API: пароль не подходит для "${user}"`);
+    }
+    return {
+      password,
+      superuser: account.superuser,
+      securityContext: account.securityContext,
+    };
+  },
 };

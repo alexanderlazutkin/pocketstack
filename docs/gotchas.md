@@ -30,6 +30,21 @@
 
 ## Cube (1.8.13)
 
+### Dev mode отключает авторизацию (RBAC не применяется)
+- **Симптом**: с `CUBEJS_DEV_MODE=true` любой токен (и его отсутствие) даёт полный доступ; `contextToGroups` не вызывается для «безтокенных» запросов.
+- **Причина**: в dev mode Cube явно пишет «Authentication checks are disabled in developer mode» — весь RBAC рассчитан на прод-режим.
+- **Решение**: `just cube` запускает прод (`npm start`); в `packages/cube/.env` — `CUBEJS_DEV_MODE=false`. Playground — отдельный `just cube-dev`. Сырой `CUBEJS_API_SECRET` как токен в проде даёт 403 (только подписанные JWT) — harness/MCP минтят admin-JWT сами (`harness/tokens.py`).
+
+### Прод-режим: pgSqlPort и Cube Store не подразумеваются
+- **Симптом**: SQL API :15432 не поднимается; `/v1/load` падает «Cube Store was specified as queue/cache driver».
+- **Причина**: дефолты `pgSqlPort=15432` и in-memory очереди — только dev-mode фичи; в проде `NODE_ENV=production` требует Cube Store.
+- **Решение**: в `cube.js` заданы `pgSqlPort: 15432` и `cacheAndQueueDriver: 'memory'`.
+
+### access_policy: подлежащий куб под view участвует в RLS
+- **Симптом**: admin-only политика на `fact_sales` + user-политика на view `sales` → любые запросы витрины под user компилируются в `WHERE 1=0` (молча!).
+- **Причина**: RLS-проход идёт по всем кубам запроса, включая факт под витриной; не совпало ни с одной политикой факта → deny.
+- **Решение**: политике `group: "*"` с `member_level: { includes: [] }` на факт-кубе: прямые запросы — deny, через view члены выдаются автоматически (view = security boundary). Плюс: пути членов (`dim_customer.customer_region`) в политиках куба запрещены — межкубовые row-фильтры пишите на view.
+
 ### Члены view — плоские, алиас не префиксует
 - **Симптом**: `UserError: 'calendar' not found for path 'sales.calendar'`.
 - **Причина**: в Views YAML `alias` неймспейсует только join_path; имена членов остаются `sales.year`.

@@ -204,7 +204,7 @@ GOLDEN = [
         "sales_mov.rel_pop, SUM(sales_mov.revenue) FROM sales_mov WHERE sales_mov.year = 1997 "
         "GROUP BY sales_mov.month, sales_mov.revenue_ly, sales_mov.rel_yoy, sales_mov.rel_pop "
         "ORDER BY sales_mov.month",
-        "reference": f"""
+        "reference": """
 WITH m AS (
   SELECT d.year, d.month, d.year * 12 + d.month AS ym, sum(f.net_price) AS revenue
   FROM marts.fact_sales f JOIN marts.dim_date d ON d.date_day = f.ship_date

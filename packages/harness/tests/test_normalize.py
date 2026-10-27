@@ -25,7 +25,7 @@ class TestNormKey:
         assert norm_key(None) == ""
 
     def test_decimal(self):
-        assert norm_key(Decimal("5")) == "5"
+        assert norm_key(Decimal(5)) == "5"
 
 
 class TestNormMeasure:

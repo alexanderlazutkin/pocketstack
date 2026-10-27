@@ -63,8 +63,9 @@ def _git(root: Path) -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         ).stdout.strip()
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         return "n/a"
 
 
@@ -168,11 +169,11 @@ def write_run(detail, summary, run_dir: Path, meta: dict) -> None:
         "",
         f"_commit `{meta['commit']}`, N={meta['n_runs']} итераций на путь_",
         "",
-        "REST — `/v1/load` c `renewQuery` (кэш Cube отключён); "
-        "SQL API — pg-wire `:15432`; REF — эталонный SQL к DuckDB.",
+        ("REST — `/v1/load` c `renewQuery` (кэш Cube отключён); "
+        "SQL API — pg-wire `:15432`; REF — эталонный SQL к DuckDB."),
         "",
-        "| Вопрос | rows | parity | REST p50 (min), мс | SQL API p50 (min), мс "
-        "| REF p50 (min), мс | SQL-хэш | файл | Evidence |",
+        ("| Вопрос | rows | parity | REST p50 (min), мс | SQL API p50 (min), мс "
+        "| REF p50 (min), мс | SQL-хэш | файл | Evidence |"),
         "|---|---|---|---|---|---|---|---|---|",
     ]
     import os
@@ -216,7 +217,12 @@ def main() -> int:
     load_env()  # .env из корня репо: секреты не в коде (см. .env.example)
 
     base = os.environ.get("CUBEJS_URL", "http://localhost:4000")
-    token = required("CUBEJS_API_SECRET")
+    # Прод-режим Cube: только подписанные JWT (RBAC, docs/cube-rbac.md)
+    from harness.tokens import mint_cube_token
+
+    token = mint_cube_token(
+        required("CUBEJS_API_SECRET"), {"groups": ["admin"]}, ttl_seconds=12 * 3600
+    )
     here = Path(__file__).resolve().parent.parent  # packages/harness
     repo = here.parent.parent
     results_root = repo / "results"

@@ -1,7 +1,6 @@
 """(b) Детерминизм SQL: POST /v1/sql → нормализация → sha256, N прогонов."""
 
 import pytest
-
 from harness.clients import CubeRestError, rest_sql
 from harness.golden import GOLDEN
 from harness.normalize import hash_sql

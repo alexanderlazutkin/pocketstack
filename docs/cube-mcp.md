@@ -168,6 +168,21 @@ REST ↔ SQL API ↔ reference.
 Креды — из `.env` (`CUBEJS_API_SECRET`, `CUBESQL_USER`, `CUBESQL_PASSWORD` через
 `harness.env`); сервер сам их загружает — в конфиге клиента секретов нет.
 
+### Агент под ролью RBAC (docs/cube-rbac.md)
+
+Код MCP не зависит от роли — она задаётся окружением запуска: REST-токен через
+`CUBEJS_API_TOKEN` (готовый JWT любой группы), креды SQL API — обычными
+`CUBESQL_*`. Агент с user-токеном видит 3 меры и только свой регион:
+
+```bash
+export $(grep -E 'CUBESQL_RBAC|CUBE_RBAC_USER_REGION' .env | xargs)
+CUBEJS_API_TOKEN="$(uv run python scripts/make-cube-token.py --group user --region AFRICA)" \
+CUBESQL_USER="$CUBESQL_RBAC_USER" CUBESQL_PASSWORD="$CUBESQL_RBAC_PASSWORD" \
+  uv run python -m cube_mcp
+```
+
+Матрица «роль → доступ» для MCP покрыта тестом `test_rbac.py::test_mcp_user_role`.
+
 ## Подключение
 
 ### opencode
