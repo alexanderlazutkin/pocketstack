@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "cubejs-server",
-    "dev": "CUBEJS_DEV_MODE=true cubejs-server"
+    "dev": "CUBEJS_DEV_MODE=true cubejs-server",
+    "prod": "CUBEJS_DEV_MODE=false cubejs-server"
   },
   "template": "docker",
   "templateVersion": "1.8.13",

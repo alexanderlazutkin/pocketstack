@@ -30,10 +30,21 @@
 
 ## Cube (1.8.13)
 
-### Dev mode отключает авторизацию (RBAC не применяется)
-- **Симптом**: с `CUBEJS_DEV_MODE=true` любой токен (и его отсутствие) даёт полный доступ; `contextToGroups` не вызывается для «безтокенных» запросов.
-- **Причина**: в dev mode Cube явно пишет «Authentication checks are disabled in developer mode» — весь RBAC рассчитан на прод-режим.
-- **Решение**: `just cube` запускает прод (`npm start`); в `packages/cube/.env` — `CUBEJS_DEV_MODE=false`. Playground — отдельный `just cube-dev`. Сырой `CUBEJS_API_SECRET` как токен в проде даёт 403 (только подписанные JWT) — harness/MCP минтят admin-JWT сами (`harness/tokens.py`).
+### Dev mode: авторизация отключена, но access_policy ПРИМЕНЯЕТСЯ
+- **Симптом**: в dev-режиме запрос из Playground (без Authorization) возвращал
+  пустой результат: access_policy не нашла групп → deny by default (`WHERE 1=0`,
+  сегмент `rlsAccessDenied` в echo запроса). Ранняя версия этого гоча
+  («любой запрос = admin, политики не применяются») была неверной.
+- **Причина**: dev отключает только проверку токенов (403 не будет), но
+  `access_policy` компилируется в SQL всегда; Playground ходит без токена →
+  `securityContext` пуст → групп нет.
+- **Решение**: dev-фолбэк в `contextToGroups` (`cube.js`): при
+  `CUBEJS_DEV_MODE=true` запрос без групп получает `['admin']`. Итог: Playground
+  (без токена) = admin; запрос с user-токеном в dev режется как в проде
+  (регион + member_level, см. `tests/test_dev_mode.py`). Полный RBAC-прогон —
+  прод: `just cube-prod`; в dev RBAC-тесты скипаются (guard в `test_rbac.py`).
+  Сырой `CUBEJS_API_SECRET` как токен в проде даёт 403 (только подписанные JWT)
+  — harness/MCP минтят admin-JWT сами (`harness/tokens.py`).
 
 ### Прод-режим: pgSqlPort и Cube Store не подразумеваются
 - **Симптом**: SQL API :15432 не поднимается; `/v1/load` падает «Cube Store was specified as queue/cache driver».

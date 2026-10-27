@@ -90,11 +90,18 @@ module.exports = {
   //  SQL API (:15432) — securityContext назначает checkSqlAuth по учётке.
   // Прод-режим Cube принимает только подписанные JWT (сырой секрет → 403),
   // поэтому непрошедший авторизацию запрос сюда вообще не доходит.
+  // ВАЖНО: access_policy применяется и в dev-режиме — Playground ходит без
+  // токена, групп нет → deny by default (WHERE 1=0). Dev-фолбэк ниже делает
+  // безтокенный запрос admin'ом; запрос с user-токеном режется как в проде.
   // Дальше режут access_policy в модели (views/sales.view.yml + кубы факта);
   // группа без политики = deny by default.
   contextToGroups: async (context) => {
     const groups = context && context.securityContext && context.securityContext.groups;
-    return Array.isArray(groups) ? groups.filter((g) => typeof g === 'string') : [];
+    const parsed = Array.isArray(groups) ? groups.filter((g) => typeof g === 'string') : [];
+    if (process.env.CUBEJS_DEV_MODE === 'true' && parsed.length === 0) {
+      return ['admin'];
+    }
+    return parsed;
   },
 
   // Per-role учётки SQL API: креды в .env, группы — в securityContext.

@@ -68,6 +68,7 @@ just seed 2 && just apply && scripts/stack.sh up && scripts/stack.sh sources
 scripts/stack.sh status    # Cube :4000, SQL API :15432, Evidence :3000, размер БД
 scripts/stack.sh up        # поднять (идемпотентно: работающее не трогает)
 scripts/stack.sh down      # остановить всё
+scripts/stack.sh restart   # down + up (напр., после смены CUBEJS_DEV_MODE в .env)
 scripts/stack.sh sources   # перематериализовать Evidence из Cube (после just apply)
 ```
 

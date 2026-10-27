@@ -1,6 +1,6 @@
 # pocketstack verify-report
 
-_сгенерирован: 2026-10-27T17:24:13, commit `c9fc72a`_
+_сгенерирован: 2026-10-27T18:17:56, commit `8b1a0aa`_
 
 | Вопрос | rows: REST↔SQLAPI↔REF | SQL-hash (N прогонов) | ground truth (лог DuckDB) | Evidence |
 |---|---|---|---|---|

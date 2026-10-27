@@ -29,8 +29,9 @@ reset sf="1":
 test:
     {{python}} pytest -q
 
-# Stage 3: верификационный harness (golden-вопросы, rows/SQL-паритет).
-# Требует запущенного `just cube` (REST :4000 + SQL API :15432 + лог запросов DuckDB).
+# Stage 3: верификационный harness (golden-вопросы, rows/SQL-паритет, RBAC).
+# Требует запущенного Cube: `just cube-prod` — RBAC-тесты работают только
+# в прод-режиме; в dev (`just cube`) они пропускаются (guard в test_rbac.py).
 verify:
     HARNESS_STRICT=1 {{python}} pytest packages/harness -q
 
@@ -39,19 +40,24 @@ verify:
 bench:
     cd packages/harness && {{python}} python -m harness.bench
 
-# Stage 2: cube-сервер (REST/GraphQL :4000 + SQL API :15432) в прод-режиме:
-# RBAC (docs/cube-rbac.md) требует ВКЛЮЧЁННЫХ проверок авторизации —
-# dev mode их отключает (каждый запрос = admin). CUBEJS_DUCKDB_QUERY_LOG
-# включает ground truth для `just verify`.
+# Stage 2: cube-сервер (REST/GraphQL :4000 + SQL API :15432) в DEV-режиме
+# (по умолчанию, packages/cube/.env: CUBEJS_DEV_MODE=true): playground
+# http://localhost:4000 + hot-reload модели. Токены не проверяются; запрос
+# БЕЗ токена получает admin (dev-фолбэк в contextToGroups, cube.js), с токеном
+# access_policy применяется как в проде (docs/cube-rbac.md § Режимы сервера).
+# CUBEJS_DUCKDB_QUERY_LOG включает ground truth для `just verify`.
 cube:
     mkdir -p artifacts
     cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm start
 
-# То же в dev mode: playground + hot-reload модели на :4000.
-# ВНИМАНИЕ: авторизация отключена → access_policy НЕ применяется.
-cube-dev:
+# Синоним `just cube` (dev mode: playground на :4000).
+cube-dev: cube
+
+# ПРОД-режим: токены/учётки проверяются строго (сырой секрет → 403),
+# безтокенный запрос отклоняется. RBAC-тесты `just verify` — только здесь.
+cube-prod:
     mkdir -p artifacts
-    cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm run dev
+    cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm run prod
 
 # Stage 4: evidence dev-сервер (ТОЛЬКО Node 20: системный 24.x ломает sveltekit/vite SSR,
 # см. docs/gotchas.md «Установка/версии»). connection.yaml рендерится из .env

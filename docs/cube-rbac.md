@@ -10,6 +10,30 @@
 admin-JWT (`harness/tokens.py`), Evidence рендерится с admin-кредами. Роль user
 появляется только там, где вы явно берёте user-токен/учётку (Часть B/C ниже).
 
+## Режимы сервера: dev (по умолчанию) vs прод — как включать/выключать
+
+Переключатель — `CUBEJS_DEV_MODE` в `packages/cube/.env` (**по умолчанию `true`**);
+npm-скрипты `packages/cube` переопределяют его без правки файла. После смены —
+перезапуск (`scripts/stack.sh restart`).
+
+| Режим | Как запустить | Что даёт |
+| --- | --- | --- |
+| **dev** (по умолчанию) | `just cube` (= `just cube-dev`, `CUBEJS_DEV_MODE=true`) | **Playground UI** на http://localhost:4000, hot-reload модели, SQL API `:15432`. Токены не проверяются; запрос **без токена = admin** (dev-фолбэк в `contextToGroups`), с токеном `access_policy` применяется как в проде |
+| **прод** | `just cube-prod` (`npm run prod`, `CUBEJS_DEV_MODE=false`) | строгие проверки: подписанные JWT / учётки SQL API, сырой секрет → 403; весь RBAC из этого документа |
+
+**Важно:** dev отключает только проверку токенов — `access_policy` компилируется
+в SQL и в dev. Поэтому безтокенный запрос (Playground) без dev-фолбэчка в
+`contextToGroups` (`cube.js`) получал бы deny by default (`WHERE 1=0`); фолбэк
+назначает ему группу admin. Полный RBAC-прогон (`just verify` → `test_rbac.py`)
+работает **только в прод-режиме** `just cube-prod`; в dev RBAC-тесты
+автоматически пропускаются (dev-поведение покрыто `test_dev_mode.py`).
+
+```bash
+just cube          # dev (по умолчанию): playground :4000, RBAC off
+just cube-prod     # прод: RBAC on — сценарии B/C и just verify
+# вручную: CUBEJS_DEV_MODE=true|false в packages/cube/.env + scripts/stack.sh restart
+```
+
 ## Модель доступа
 
 ```
@@ -66,8 +90,8 @@ admin-JWT (`harness/tokens.py`), Evidence рендерится с admin-кред
 #      CUBESQL_RBAC_USER/PASSWORD (user), CUBE_RBAC_USER_REGION (напр. AFRICA)
 grep -E 'CUBESQL_RBAC_USER|CUBE_RBAC_USER_REGION' .env
 
-# 0.2. Стек поднят (прод-режим = авторизация ВКЛЮЧЕНА; это роль admin):
-just cube          # или scripts/stack.sh up; REST :4000 + SQL API :15432
+# 0.2. Стек поднят в ПРОД-режиме (авторизация ВКЛЮЧЕНА; это роль admin):
+just cube-prod     # или CUBEJS_DEV_MODE=false + scripts/stack.sh up; REST :4000 + SQL API :15432
 
 # 0.3. Стек жив и по умолчанию admin — 200 и полный список кубов:
 ADMIN_JWT=$(just token 2>/dev/null)
@@ -364,10 +388,12 @@ uv run pytest -q                                       # всё, включая 
 
 ## Подводные камни (найдены в бою)
 
-1. **Dev mode отключает авторизацию** («Authentication checks are disabled in
-   developer mode»): любой запрос становится admin, политики не применяются.
-   Поэтому `just cube`/`scripts/stack.sh` запускают ПРОД-режим (`npm start`,
-   `CUBEJS_DEV_MODE=false` в `packages/cube/.env`); playground — `just cube-dev`.
+1. **Dev mode отключает проверку токенов, но НЕ access_policy**: Playground
+   ходит без токена → групп нет → deny by default (`WHERE 1=0`). Поэтому в
+   `contextToGroups` есть dev-фолбэк: безтокенный запрос = admin. По умолчанию
+   стек в dev (`packages/cube/.env`: `CUBEJS_DEV_MODE=true`, `just cube` —
+   playground); строгий RBAC — прод: `just cube-prod` (`npm run prod`).
+   См. «Режимы сервера» в начале документа и docs/gotchas.md.
 2. **`pgSqlPort`**: в dev mode SQL API :15432 включён по умолчанию, в проде —
    нет. Задан явно в `cube.js`.
 3. **Cube Store**: прод-режим по умолчанию требует его для очереди/кэша —

@@ -82,6 +82,25 @@ def user_jwt(api_secret, user_region):
     )
 
 
+@pytest.fixture(autouse=True, scope="session")
+def require_prod_mode(cube_up, CUBE_URL):
+    """RBAC работает только в прод-режиме: dev отключает авторизацию целиком.
+
+    Проба: сырой CUBEJS_API_SECRET в проде даёт 403; в dev-режиме любой
+    токен принимается (200) → все RBAC-тесты пропускаются.
+    Прод: `just cube-prod`; dev (по умолчанию, playground): `just cube`.
+    """
+    r = requests.get(
+        f"{CUBE_URL}/cubejs-api/v1/meta",
+        headers={"Authorization": required("CUBEJS_API_SECRET")},
+        timeout=30,
+    )
+    if r.status_code != 403:
+        pytest.skip(
+            f"Cube в dev-режиме (auth отключён, raw secret → HTTP {r.status_code}); нужен `just cube-prod`"
+        )
+
+
 @pytest.fixture(scope="session")
 def nogroup_jwt(api_secret):
     return mint_cube_token(api_secret, {}, ttl_seconds=3600)
