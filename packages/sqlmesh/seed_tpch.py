@@ -6,15 +6,21 @@
   ОДНОЙ транзакцией каталога (pg + MinIO); снапшот-изоляция: старые данные
   живут в time-travel до prune (процедура «Смена sf» в plan.md).
 
+Чистка time-travel (шаг 8): флаг --prune-old — нативные функции ducklake
+(expire_snapshots → cleanup_old_files → delete_orphaned_files; mc НЕ нужен):
+- `seed_tpch.py SF --prune-old` — пересев + чистка одним вызовом;
+- `seed_tpch.py --prune-old` (без sf) — prune-only, финальный шаг rebuild-lake
+  (после apply-lake: снапшоты растут и от sqlmesh, чистка — последней).
+
 Маркер sf — таблица pocketstack_meta в обоих режимах; тесты масштабируют
 эталоны по нему (целые sf), region/nation — константы dbgen.
 
-Запуск: uv run python packages/sqlmesh/seed_tpch.py [sf]
+Запуск: uv run python packages/sqlmesh/seed_tpch.py [sf] [--prune-old]
 Системный DuckDB CLI 2.0 к файлам проекта — только через `just cli-readonly`.
 """
 
+import argparse
 import os
-import sys
 from pathlib import Path
 
 import duckdb
@@ -106,7 +112,46 @@ def lake_attach(
     con.execute(f"ATTACH '{dsn}' AS {alias} (TYPE ducklake, DATA_PATH '{data_path}'{ro})")
 
 
-def seed_ducklake(sf: float) -> None:
+def prune_old_snapshots(con: duckdb.DuckDBPyConnection) -> None:
+    """Чистка time-travel: оставить ТОЛЬКО текущий снапшот + удалить его файлы.
+
+    Нативные функции ducklake (mc/хостовые S3-клиенты НЕ нужны — чистит
+    сама сессия с уже настроенными s3_* кредами):
+    1. ducklake_expire_snapshots — погасить все снапшоты, кроме текущего
+       (файлы попадают в ducklake_files_scheduled_for_deletion);
+    2. ducklake_cleanup_old_files — физически удалить запланированные;
+    3. ducklake_delete_orphaned_files — убрать сироты (остатки сбойных транзакций).
+
+    ВНИМАНИЕ: длинные запросы, начатые по старому снапшоту, при expire теряют
+    данные time-travel — для демо-стека допустимо (rebuild = между запросами).
+    """
+    # всё, кроме максимального (текущего) snapshot_id
+    stale = con.execute(
+        "SELECT snapshot_id FROM ducklake_snapshots('lake') "
+        "WHERE snapshot_id <> (SELECT max(snapshot_id) FROM ducklake_snapshots('lake'))"
+    ).fetchall()
+    if stale:
+        ids = [r[0] for r in stale]
+        con.execute(f"CALL ducklake_expire_snapshots('lake', versions => {ids})")
+        print(f"prune: погашено снапшотов time-travel: {len(ids)} ({ids})")
+    else:
+        print("prune: устаревших снапшотов нет")
+    deleted = con.execute("CALL ducklake_cleanup_old_files('lake', cleanup_all => true)").fetchall()
+    print(f"prune: удалено файлов данных: {sum(len(r) for r in deleted) if deleted else 0}")
+    try:
+        orphans = con.execute(
+            "CALL ducklake_delete_orphaned_files('lake', cleanup_all => true)"
+        ).fetchall()
+        print(f"prune: удалено файлов-сирот: {sum(len(r) for r in orphans) if orphans else 0}")
+    except duckdb.HTTPException as e:
+        # Известная особенность: orphan-scan ЛИСТИТ КОРЕНЬ бакета — на MinIO с
+        # s3_url_style='path' это HTTP 404. Плановая чистка выше уже выполнена;
+        # сироты (остатки сбойных транзакций) редки. Ручная сверка при желании:
+        # mc ls --recursive local/BUCKET ↔ ducklake_list_files (docs/gotchas.md)
+        print(f"prune: orphan-scan пропущен (MinIO path-style не листит корень): {str(e)[:120]}")
+
+
+def seed_ducklake(sf: float, prune_old: bool = False) -> None:
     """dbgen локально → атомарный перенос в lake.raw_tpch одной транзакцией каталога."""
     WAREHOUSE.parent.mkdir(parents=True, exist_ok=True)
     tmp = WAREHOUSE.parent / f".seed_tmp_{os.getpid()}.duckdb"
@@ -130,15 +175,50 @@ def seed_ducklake(sf: float) -> None:
             _write_meta(con, sf, prefix="lake.")
             con.execute("COMMIT")
             _report(con, lake=True)
+            if prune_old:
+                prune_old_snapshots(con)
         finally:
             con.close()
     finally:
         tmp.unlink(missing_ok=True)
 
 
-def main() -> None:
-    sf = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "sf",
+        nargs="?",
+        type=float,
+        default=None,
+        help="scale factor TPC-H (по умолчанию 1.0; без sf и с --prune-old — только чистка)",
+    )
+    parser.add_argument(
+        "--prune-old",
+        action="store_true",
+        help="ducklake: погасить time-travel снапшоты и удалить ненужные файлы",
+    )
+    args = parser.parse_args(argv)
+
     mode = os.environ.get("WAREHOUSE_MODE", "file")
+    sf = 1.0 if args.sf is None else args.sf
+
+    if args.prune_old:
+        if mode != "ducklake":
+            raise SystemExit(
+                "--prune-old применим только к WAREHOUSE_MODE=ducklake "
+                "(file-режим пересоздаёт warehouse-файл целиком, time-travel нет)"
+            )
+        if args.sf is None:  # prune-only: финальный шаг процедуры rebuild-lake
+            con = duckdb.connect()
+            try:
+                lake_attach(con)
+                prune_old_snapshots(con)
+            finally:
+                con.close()
+            return
+        seed_ducklake(sf, prune_old=True)
+        return
+
     if mode == "ducklake":
         seed_ducklake(sf)
     elif mode == "file":

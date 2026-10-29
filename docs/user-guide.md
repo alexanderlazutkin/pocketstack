@@ -58,6 +58,35 @@ just seed 2 && just apply && scripts/stack.sh up && scripts/stack.sh sources
 После смены sf прогоните проверки (§6): при ЛЮБОМ sf должно сходиться
 равенство трёх путей; абсолютные числа масштабируются с данными.
 
+## 3a. DuckLake-режим (опция для тренировок; Stage 7)
+
+Витрина как DuckLake: каталог в PostgreSQL, данные — parquet в MinIO
+(`docker compose up -d --wait` поднимает инфраструктуру). Куб и Evidence —
+в контейнерах, на хосте ничего ставить не нужно.
+
+```bash
+docker compose up -d --wait            # 1) инфраструктура: pg-каталог + MinIO + бакет
+WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # 2) куб на lake (прод)
+just seed-lake 1 && just apply-lake    # 3) данные sf=1 + витрины sqlmesh в lake
+just verify-lake                       # 4) сверка: 88 тестов (sf-aware)
+```
+
+Смена sf в ducklake — **без остановки куба** (снапшот-изоляция каталога):
+
+```bash
+just rebuild-lake 10      # seed → сброс state sqlmesh → apply → prune time-travel
+```
+
+Нюансы:
+- после свапа куб может отвечать СТАРЫМИ числами из своего кэша — обходится
+  `renewQuery` (harness делает это сам) или ожиданием TTL кэша (см. gotchas);
+- повторные `rebuild-lake` НЕ раздуливают MinIO: финальный `--prune-old` гасит
+  time-travel и удаляет ненужные файлы (бакет стабилен, проверено тестом);
+- нужно time-travel для анализа sf=1↔sf=10 — прогоните шаги вручную без чистки:
+  `just seed-lake SF` → `rm warehouse/lake_state.duckdb*` → `just apply-lake`;
+- бенч в lake-режиме — `just bench-lake` (цифры file/ducklake не смешиваются,
+  docs/bench-protocol.md §1a).
+
 ## 4. Ежедневный запуск и остановка
 
 > **Stage 7 (шаг 7.1)**: serving-слой по умолчанию — контейнеры.

@@ -31,6 +31,23 @@
 - **Решение**: таблицы без констрейнтов; уникальность ключей мелких мета-таблиц —
   паттерном DELETE+INSERT (`pocketstack_meta` в seed_tpch.py).
 
+### ducklake: orphan-scan не листит корень бакета на MinIO (path-style)
+- **Симптом**: `ducklake_delete_orphaned_files` → `HTTP GET error reading
+  's3://<bucket>' ... 404` — функция перечисляет КОРЕНЬ бакета, MinIO +
+  `s3_url_style='path'` на таком запросе отдают 404.
+- **Решение**: чистка time-travel идёт НОСИТЕЛЬНО через ducklake
+  (`expire_snapshots` → `cleanup_old_files` — основной механизм `--prune-old`,
+  работает), orphan-scan — best-effort с варнингом (сироты = только остатки
+  сбойных транзакций). Ручная сверка: `mc ls --recursive local/<bucket>` ↔
+  `ducklake_list_files('lake', <таблица>)`.
+
+### mc (elestio/minio): нет `find --type`, env-имена отличаются
+- У mc из образа elestio НЕТ флага `find --type f` — только `ls --recursive`.
+- `$S3_ACCESS_KEY/$S3_SECRET_KEY` есть ТОЛЬКО в контейнере minio-init; в
+  minio-сервере — `$MINIO_ROOT_USER/$MINIO_ROOT_PASSWORD`.
+- `mc ls ... | wc -l` внутри `sh -c` маскирует падение mc (exit пайпа = exit wc):
+  строки считайте снаружи (паттерн — `tests/test_lake_prune.py:_s3_object_count`).
+
 ### dbgen: lineitem нелинеен от sf
 - **Симптом**: при sf=10 lineitem = 59 986 052, а не 6 001 215×10 = 60 012 150
   (orders при этом ровно 15 000 000).
@@ -235,6 +252,12 @@
 ## Окружение
 
 - **just не ставился системой**: `uv tool install rust-just` → `~/.local/bin/just` (проверять PATH).
+- **После смены sf в ducklake куб отдаёт СТАРЫЕ числа** (симптом: REST-запрос
+  возвращает цифры прошлого sf, хотя свежий ATTACH видит новые данные).
+  Причина — кэш Cube in-memory (не ducklake: READ_ONLY-attach подхватывает
+  новые снапшоты мгновенно, проверено). Лечение: `renewQuery: true` в запросе
+  (harness/bench так и делают) либо перезапуск куба. Нормальное поведение
+  zero-downtime свапа (Stage 7, шаг 8).
 - **Порт 9000 занят snap-сервисом lemonade-server** (симптом: `compose up` →
   `ports are not available: ... 127.0.0.1:9000: bind: address already in use`;
   держатель виден в `ss -tlnpe 'sport = :9000'` — cgroup `snap.lemonade-server...`).

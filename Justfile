@@ -28,6 +28,33 @@ plan-lake:
 apply-lake:
     cd packages/sqlmesh && {{python}} sqlmesh --gateway lake plan --auto-apply --no-prompts
 
+# Stage 7 (шаг 8): полный rebuild file-режима (контейнерный аналог stack.sh
+# rebuild; судьба stack.sh — шаг 9 ревью). Лок куба снимаем ОБЯЗАТЕЛЬНО
+# (иначе Conflicting lock); Evidence sources перематериализуем В КОНТЕЙНЕРЕ
+# (кэш собран по старому sf). Аварийное восстановление не нужно: seed+apply
+# идемпотентны, старый файл удаляется явно (бэкап не храним — детерминизм).
+rebuild sf="1":
+    docker compose stop cube
+    rm -f warehouse/pocketstack.duckdb warehouse/pocketstack.duckdb.wal
+    {{python}} python packages/sqlmesh/seed_tpch.py {{sf}}
+    cd packages/sqlmesh && {{python}} sqlmesh plan --auto-apply --no-prompts
+    docker compose --profile serve up -d --wait
+    docker compose exec evidence npm run sources
+
+# Stage 7 (шаг 8): полный rebuild ducklake-режима по процедуре «Смена sf»
+# (docs/plan.md). Куб НЕ останавливаем — снапшот-изоляция каталога
+# (zero-downtime swap; лок — только у pg-каталога, его держит транзакция).
+# State sqlmesh сбрасывается ОТДЕЛЬНЫМ шагом (развязан с данными в lake).
+# Финальный prune-only (--prune-old без sf) гасит time-travel ПОСЛЕ apply —
+# снапшоты растут и от sqlmesh; так повторные rebuild бакет НЕ раздувает.
+# Нужно time-travel для анализа (sf=1↔sf=10)? — прогоните шаги вручную
+# (seed-lake / rm state / apply-lake) БЕЗ финальной чистки.
+rebuild-lake sf="1":
+    WAREHOUSE_MODE=ducklake {{python}} python packages/sqlmesh/seed_tpch.py {{sf}}
+    rm -f warehouse/lake_state.duckdb warehouse/lake_state.duckdb.wal
+    cd packages/sqlmesh && {{python}} sqlmesh --gateway lake plan --auto-apply --no-prompts
+    WAREHOUSE_MODE=ducklake {{python}} python packages/sqlmesh/seed_tpch.py --prune-old
+
 # Полный пересбор с нуля (warehouse детерминирован: dbgen + sqlmesh); sf — как в seed.
 # ВНИМАНИЕ: перед reset остановите стек — Cube держит блокировку DuckDB
 # (scripts/stack.sh down), иначе apply упадёт с Conflicting lock.
