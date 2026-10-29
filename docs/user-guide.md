@@ -60,9 +60,11 @@ just rebuild     # ВСЁ одним шагом (sf=1): снять лок куб
 Проверка стека:
 
 ```bash
-CUBEJS_DEV_MODE=false just serve-up   # куб в прод-режиме (нужен для RBAC-тестов)
-just verify    # 88 тестов: паритет 3 путей + ground truth + RBAC-матрица
-just bench     # 13 вопросов, latency 3 путей → results/
+just serve-up    # куб в dev: Playground :4000 (по умолчанию)
+just verify      # тесты живого стека: паритет 3 путей + ground truth
+                 # (в dev — без RBAC-матрицы; полный 88/88 — куб в проде:
+                 #  CUBEJS_DEV_MODE=false just serve-up, затем just verify)
+just bench       # 13 вопросов, latency 3 путей → results/
 ```
 
 Готово: **Evidence** http://localhost:3000 · **Cube UI** http://localhost:4000 ·
@@ -76,11 +78,17 @@ docker compose up -d --wait   # 1) инфраструктура: pg-катало
 just seed-lake 1              # 2) бакет (идемпотентно) + dbgen sf=1 → CTAS в lake.raw_tpch
 just apply-lake               # 3) витрины sqlmesh в lake (state — warehouse/lake_state.duckdb)
 
-WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # 4) куб на lake (прод)
+WAREHOUSE_MODE=ducklake just serve-up   # 4) куб на lake (dev — Playground :4000)
 
-just verify-lake              # 5) те же 88 тестов; ground truth — ATTACH lake READ_ONLY
+just verify-lake              # 5) те же тесты, что verify (RBAC — в проде, см. врезку);
+                               #    ground truth — ATTACH lake READ_ONLY
 just bench-lake               # бенч lake-режима (цифры file/lake не смешиваются)
 ```
+
+> **Прод vs dev**: по умолчанию куб в dev (Playground, безтокенный admin).
+> Полные 88 тестов `verify-lake` (вкл. RBAC-матрицу) требуют прод:
+> пересоздать куб `WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up`;
+> в dev RBAC-тесты пропустятся (остальное — полноценно).
 
 Нюансы lake-режима:
 - куб аттачит каталог **READ_ONLY** (защита от случайной миграции каталога);
@@ -104,9 +112,9 @@ just bench-lake               # бенч lake-режима (цифры file/lake
 ```bash
 docker compose up -d --wait            # инфраструктура lake (если не поднята)
 just seed-lake 1 && just apply-lake    # данные + витрины в lake (sf — ваш)
-WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # куб на lake
+WAREHOUSE_MODE=ducklake just serve-up  # куб на lake (dev; прод — см. §7)
 docker compose exec evidence npm run sources   # перематериализовать кэш Evidence
-just verify-lake                       # сверка в lake-режиме
+just verify-lake                       # сверка в lake-режиме (RBAC — в проде, см. §7)
 ```
 
 **ducklake → file** (данные file уже есть — строились §3; иначе сначала `just rebuild`):
@@ -248,7 +256,7 @@ just verify        # 88 тестов (в lake-режиме — just verify-lake)
 |---|---|---|---|
 | 1 | Быстрый старт с нуля, file-режим | §3: clone → `.env` → `uv sync` → `just rebuild` | Evidence :3000 и Cube :4000 отвечают; `verify` **88/1** (куб в проде) |
 | 2 | File-демо: сверка цифр + bench | §9 (три пути `total_revenue`) + `just bench` | число совпало на всех путях; bench 13/13 parity → `results/` |
-| 3 | DuckLake с нуля | §4: `compose up` → `seed-lake` → `apply-lake` → `serve-up` (WAREHOUSE_MODE=ducklake) | `verify-lake` **88/1** |
+| 3 | DuckLake с нуля | §4: `compose up` → `seed-lake` → `apply-lake` → `serve-up` (WAREHOUSE_MODE=ducklake) | `verify-lake` **88/1** (куб в проде: `WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up`) |
 | 4 | Переход file ↔ ducklake | §5 | `printenv WAREHOUSE_MODE` подтверждает режим; verify зелёной в обоих |
 | 5 | Смена sf | §6: `just rebuild 2` / `just rebuild-lake 10` | числа масштабировались; verify зелёной; повторный rebuild-lake бакет не раздул |
 | 6 | RBAC-демо (прод-контейнер) | `CUBEJS_DEV_MODE=false just serve-up` → `docs/cube-rbac.md` §«Руководство по проверке пользователем (пошагово)» | Admin видит всё; user — ровно 3 меры и только свой регион |

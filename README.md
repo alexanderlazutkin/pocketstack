@@ -71,9 +71,10 @@ uv sync                                # python-окружение (sqlmesh, har
 just rebuild        # БД с нуля (sf=1) + витрины + контейнеры serving + Evidence sources
                       # транзакционно: сбой → авто-откат предыдущей БД
 
-CUBEJS_DEV_MODE=false just serve-up   # куб в прод-режиме (нужен для RBAC-тестов verify)
-just verify         # 88 тестов живого стека: паритет 3 путей + RBAC-матрица
-just bench          # 13 вопросов, latency 3 путей
+just serve-up        # куб в dev — Playground :4000 (по умолчанию)
+just verify          # тесты живого стека: паритет 3 путей + ground truth
+                      # (RBAC-матрица — только в проде: CUBEJS_DEV_MODE=false just serve-up → 88/88)
+just bench           # 13 вопросов, latency 3 путей
 ```
 
 ### Режим DuckLake (lakehouse) — опция
@@ -81,8 +82,8 @@ just bench          # 13 вопросов, latency 3 путей
 ```bash
 docker compose up -d --wait    # инфраструктура: pg-каталог + MinIO (healthchecks)
 just seed-lake 1 && just apply-lake    # бакет + данные sf=1 + витрины sqlmesh в lake
-WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # куб на lake (прод)
-just verify-lake               # та же сверка 88 тестов, ground truth через ATTACH lake
+WAREHOUSE_MODE=ducklake just serve-up  # куб на lake (dev — Playground; прод: + CUBEJS_DEV_MODE=false)
+just verify-lake               # сверка 88 тестов, ground truth через ATTACH lake
 ```
 
 Подключить AI-агента (opencode/Claude Code) к семантическому слою:
