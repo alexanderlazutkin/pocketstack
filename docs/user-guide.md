@@ -1,148 +1,180 @@
 # Руководство пользователя pocketstack
 
-Пошаговая инструкция: установка, запуск, смена объёма данных (sf), разблокировка
-DuckDB, сценарий сверки цифр через UI Cube и Evidence BI, где смотреть отчёты
-тестов и производительности.
+Пошаговое руководство: работа с нуля в двух режимах витрины (DuckDB-файл и
+DuckLake-lakehouse), переход между режимами, смена объёма данных (sf), сверка
+цифр, где смотреть отчёты и что делать при сбоях.
 
 ---
 
-## 1. Предусловия
+## 1. Два режима работы витрины
+
+Витрина (marts) развёртывается в одном из двух режимов. Режим — свойство
+**куба-контейнера** (переменная `WAREHOUSE_MODE` при его создании); модели
+sqlmesh и семантика Cube одинаковы в обоих.
+
+| | **DuckDB file** (основной) | **DuckLake** (lakehouse, опция) |
+|---|---|---|
+| Данные | один файл `warehouse/pocketstack.duckdb` | каталог в PostgreSQL + parquet в MinIO (docker compose) |
+| Сильная сторона | простота, максимум скорости | time-travel, данные вне файла, zero-downtime смена sf |
+| Построение | `just rebuild SF` | `just seed-lake SF` + `just apply-lake` |
+| Проверка | `just verify` / `just bench` | `just verify-lake` / `just bench-lake` |
+| Смена sf | `just rebuild SF` (куб останавливается) | `just rebuild-lake SF` (куб НЕ останавливается) |
+
+Данные режимов **независимы** (у каждого свой raw и витрины; state sqlmesh у
+lake — отдельный файл `warehouse/lake_state.duckdb`). Переход между режимами
+не конвертирует данные — см. §5.
+
+## 2. Предусловия
 
 | Инструмент | Версия/путь | Проверка |
 |---|---|---|
 | Linux (bash) | — | — |
 | [uv](https://docs.astral.sh/uv/) (Python 3.12) | актуальный | `uv --version` |
 | Docker (Engine + compose v2 / Desktop) | актуальный | `docker compose version` |
-| just (опц.) | `uv tool install rust-just` → `~/.local/bin/just` | `just --version` |
-| Chrome (опц.) | для автопроверки страниц Evidence | — |
+| just (опц., но все команды ниже — через него) | `uv tool install rust-just` → `~/.local/bin/just` | `just --version` |
 
-Serving-слой (Cube, Evidence) и ducklake-инфраструктура — в контейнерах
-(`just serve-up`); Node на хосте НЕ нужен (пин 20.19.0 зашит в образ
-`docker/evidence/Dockerfile`). На хосте остаются pipeline (uv), harness, MCP.
+Serving-слой (Cube, Evidence) и lake-инфраструктура — в контейнерах; **Node на
+хосте не нужен** (пины зашиты в образы `docker/`). На хосте работают только
+pipeline (uv: sqlmesh/seed), harness и MCP-сервер.
 
-## 2. Установка проекта с нуля
+## 3. С нуля: режим DuckDB (файл)
 
 ```bash
 git clone <repo-url> pocketstack && cd pocketstack
 
-# Секреты (вне git): скопируйте шаблон и сгенерируйте свои значения
+# Секреты (вне git): шаблон + свои значения
 cp .env.example .env
-$EDITOR .env        # CUBEJS_API_SECRET, CUBESQL_PASSWORD, CUBESQL_RBAC_PASSWORD: openssl rand -hex 32
+$EDITOR .env     # CUBEJS_API_SECRET, CUBESQL_PASSWORD, CUBESQL_RBAC_PASSWORD,
+                 # DUCKLAKE_*: openssl rand -hex 32 (см. комментарии в шаблоне)
 
-# Python-окружение (sqlmesh, harness, duckdb 1.5.5)
-uv sync
+uv sync          # python-окружение: sqlmesh, harness, duckdb 1.5.5
 
-# (опц.) Зависимости Evidence на хосте — ТОЛЬКО для dev вне контейнера;
-# контейнер docker/evidence ставит их сам (npm ci --legacy-peer-deps в образе)
-# cd packages/evidence && npm ci --legacy-peer-deps && cd ../..
-
-# БД + витрины + стек + материализация — одной командой (sf=1 по умолчанию)
-scripts/stack.sh rebuild
+just rebuild     # ВСЁ одним шагом (sf=1): снять лок куба → dbgen → витрины →
+                 # контейнеры serving → материализация Evidence sources
 ```
 
-`rebuild` транзакционен: старая БД переименовывается в бэкап, создаётся новая,
-при успехе бэкап удаляется, при сбое — авто-восстановление.
-Занимает ~10–15 минут (dbgen + sqlmesh + материализация 22 таблиц).
+`just rebuild` транзакционен: текущая БД переименовывается в бэкап, при успехе
+бэкап удаляется, при сбое — авто-откат предыдущей БД. Занимает ~10–15 минут
+на sf=10 (dbgen + sqlmesh + материализация).
 
-Готово: **Evidence** http://localhost:3000 · **Cube UI** http://localhost:4000.
-
-## 3. Смена объёма данных (sf)
+Проверка стека:
 
 ```bash
-scripts/stack.sh rebuild 2      # TPC-H sf=2 (данные и все цифры изменятся)
-scripts/stack.sh rebuild 0.1    # крохотный сет для быстрых экспериментов
-# эквивалент по шагам (стек должен быть остановлен!):
-just seed 2 && just apply && scripts/stack.sh up && scripts/stack.sh sources
+CUBEJS_DEV_MODE=false just serve-up   # куб в прод-режиме (нужен для RBAC-тестов)
+just verify    # 88 тестов: паритет 3 путей + ground truth + RBAC-матрица
+just bench     # 13 вопросов, latency 3 путей → results/
 ```
 
-После смены sf прогоните проверки (§6): при ЛЮБОМ sf должно сходиться
+Готово: **Evidence** http://localhost:3000 · **Cube UI** http://localhost:4000 ·
+SQL-клиенты — `docs/cube-sql-clients.md`.
+
+## 4. С нуля: режим DuckLake (lakehouse)
+
+```bash
+docker compose up -d --wait   # 1) инфраструктура: pg-каталог + MinIO (healthchecks)
+
+just seed-lake 1              # 2) бакет (идемпотентно) + dbgen sf=1 → CTAS в lake.raw_tpch
+just apply-lake               # 3) витрины sqlmesh в lake (state — warehouse/lake_state.duckdb)
+
+WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # 4) куб на lake (прод)
+
+just verify-lake              # 5) те же 88 тестов; ground truth — ATTACH lake READ_ONLY
+just bench-lake               # бенч lake-режима (цифры file/lake не смешиваются)
+```
+
+Нюансы lake-режима:
+- куб аттачит каталог **READ_ONLY** (защита от случайной миграции каталога);
+  пишет только sqlmesh/seed через свои транзакции в pg-каталоге;
+- после смены данных в lake (`rebuild-lake`) куб может отдавать старые числа
+  из своего кэша до `renewQuery`/TTL — harness обходит сам (грабля в gotchas);
+- повторные `just rebuild-lake` не раздуливают MinIO: финальный `--prune-old`
+  гасит time-travel и удаляет ненужные файлы;
+- нужно time-travel для анализа (sf=1↔sf=10)? — шаги вручную БЕЗ чистки:
+  `just seed-lake SF` → `rm warehouse/lake_state.duckdb*` → `just apply-lake`.
+
+## 5. Переход между режимами
+
+Данные режимов независимы и не конвертируются: в новом режиме будет тот sf,
+который вы в него засеяли (или засейте — см. §3/§4). Переход = пересоздание
+куба-контейнера с другим `WAREHOUSE_MODE` (compose видит смену env и
+пересоздаёт контейнер; Evidence не трогаем — он ходит в куб по тем же портам).
+
+**file → ducklake** (в lake ещё нет данных):
+
+```bash
+docker compose up -d --wait            # инфраструктура lake (если не поднята)
+just seed-lake 1 && just apply-lake    # данные + витрины в lake (sf — ваш)
+WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # куб на lake
+docker compose exec evidence npm run sources   # перематериализовать кэш Evidence
+just verify-lake                       # сверка в lake-режиме
+```
+
+**ducklake → file** (данные file уже есть — строились §3; иначе сначала `just rebuild`):
+
+```bash
+CUBEJS_DEV_MODE=false just serve-up    # куб без WAREHOUSE_MODE → file (пересоздастся)
+docker compose exec evidence npm run sources
+just verify
+```
+
+Текущий режим куба: `docker compose exec cube printenv WAREHOUSE_MODE`
+(выведет `file` или `ducklake`; переменную задаёт compose — `${WAREHOUSE_MODE:-file}`).
+
+## 6. Смена объёма данных (sf)
+
+```bash
+just rebuild 2        # file-режим: sf=2 (данные и все цифры изменятся)
+just rebuild-lake 10  # lake-режим: sf=10, куб НЕ останавливается (zero-downtime)
+just seed 0.1         # только raw без витрин (file), для быстрых экспериментов
+```
+
+После смены sf прогоните проверки (§9): при любом sf должно сходиться
 равенство трёх путей; абсолютные числа масштабируются с данными.
 
-## 3a. DuckLake-режим (опция для тренировок; Stage 7)
-
-Витрина как DuckLake: каталог в PostgreSQL, данные — parquet в MinIO
-(`docker compose up -d --wait` поднимает инфраструктуру). Куб и Evidence —
-в контейнерах, на хосте ничего ставить не нужно.
+## 7. Ежедневный запуск и остановка
 
 ```bash
-docker compose up -d --wait            # 1) инфраструктура: pg-каталог + MinIO + бакет
-WAREHOUSE_MODE=ducklake CUBEJS_DEV_MODE=false just serve-up   # 2) куб на lake (прод)
-just seed-lake 1 && just apply-lake    # 3) данные sf=1 + витрины sqlmesh в lake
-just verify-lake                       # 4) сверка: 88 тестов (sf-aware)
+just serve-up        # поднять cube+evidence (+ lake-инфраструктуру compose)
+just serve-down      # снять serving, НЕ трогая lake-инфраструктуру
+just evidence        # поднять только Evidence (с кубом)
+docker compose ps    # состояние контейнеров
+docker compose logs cube evidence   # логи серверов (или -f для слежения)
 ```
 
-Смена sf в ducklake — **без остановки куба** (снапшот-изоляция каталога):
+Прод/dev куба — переменной при поднятии: `CUBEJS_DEV_MODE=false just serve-up`
+(прод: строгие токены + RBAC; dev — playground на :4000 и безтокенный admin).
 
-```bash
-just rebuild-lake 10      # seed → сброс state sqlmesh → apply → prune time-travel
-```
-
-Нюансы:
-- после свапа куб может отвечать СТАРЫМИ числами из своего кэша — обходится
-  `renewQuery` (harness делает это сам) или ожиданием TTL кэша (см. gotchas);
-- повторные `rebuild-lake` НЕ раздуливают MinIO: финальный `--prune-old` гасит
-  time-travel и удаляет ненужные файлы (бакет стабилен, проверено тестом);
-- нужно time-travel для анализа sf=1↔sf=10 — прогоните шаги вручную без чистки:
-  `just seed-lake SF` → `rm warehouse/lake_state.duckdb*` → `just apply-lake`;
-- бенч в lake-режиме — `just bench-lake` (цифры file/ducklake не смешиваются,
-  docs/bench-protocol.md §1a).
-
-## 4. Ежедневный запуск и остановка
-
-> **Stage 7 (шаг 7.1)**: serving-слой по умолчанию — контейнеры.
-> Эквиваленты: `just serve-up` (= up), `just serve-down` (= down),
-> `just cube-stop` (снять лок куба перед `just apply` в file-режиме),
-> `just evidence` (поднять Evidence). `stack.sh` ниже — host-ветка
-> (legacy; судьба решается на ревью Stage 7). Логи контейнеров:
-> `docker compose logs cube evidence`.
-
-```bash
-scripts/stack.sh status    # Cube :4000, SQL API :15432, Evidence :3000, размер БД
-scripts/stack.sh up        # поднять (идемпотентно: работающее не трогает)
-	      # остановить всё
-scripts/stack.sh restart   # down + up (напр., после смены CUBEJS_DEV_MODE в .env)
-scripts/stack.sh sources   # перематериализовать Evidence из Cube (после just apply)
-```
-
-Логи серверов: `artifacts/logs/cube.log`, `artifacts/logs/evidence.log`.
-
-## 5. Разблокировка DuckDB
+## 8. Разблокировка DuckDB (Conflicting lock)
 
 **Симптом**: `just apply` / `just seed` / `sqlmesh plan` падает с
-`Conflicting lock`, `Could not set lock on file ... pocketstack.duckdb` или
-`IO Error: trying to read a database file that is already open`.
+`Conflicting lock` или `Could not set lock on file ... pocketstack.duckdb`.
 
-**Причина**: файл на запись открывает ровно один процесс. Писатель — sqlmesh;
-Cube/Evidence держат файл и не дают применить изменения витрины.
-
-**Лечение** (две команды):
+**Причина**: файл на запись открывает ровно один процесс; в file-режиме файл
+держит контейнер куба.
 
 ```bash
-scripts/stack.sh down      # остановить держателей блокировки (+ фолбэк-pkill)
-just apply                 # повторить запись
+just cube-stop    # снять лок куба (docker compose stop cube)
+just apply        # повторить запись
 
-# затем вернуть стек:
-scripts/stack.sh up
-scripts/stack.sh sources   # если менялись данные (дашборды увидят новые цифры)
+just serve-up     # затем вернуть куб
 ```
 
-`scripts/stack.sh rebuild [sf]` делает это сам (down в начале).
-Если :4000/:3000 после `down` всё ещё заняты — найдите процесс вручную:
-`lsof -i :4000 -i :3000`, `kill <pid>`.
+`just rebuild` делает это сам. В **lake-режиме** остановка не нужна: писатели
+координируются транзакциями pg-каталога (куб держит только READ_ONLY-attach).
 
-Отдельно: системный DuckDB CLI 2.0 к файлам проекта — ТОЛЬКО `just cli-readonly`
-(запись версией 2.0 сделает файл нечитаемым для 1.4.x — весь стек на ней).
+Отдельно: системный DuckDB CLI 2.0 к файлам проекта — только `just cli-readonly`
+(запись версией 2.0 сделает файл нечитаемым для 1.5.5 — весь стек на ней).
 
-## 6. Сценарий сверки цифр (Cube UI + Evidence BI)
+## 9. Сценарий сверки цифр (Cube UI + Evidence BI)
 
 Смысл: одна и та же метрика, полученная тремя путями, должна совпасть до копейки.
-Разберите с пользователем на примере **total_revenue** (sf=1: 218,102,223,885.00).
+Разберите на примере **total_revenue** (sf=1: 218,102,223,885.00).
 
-**Шаг 1 — Cube UI (REST)**: http://localhost:4000 → вкладка **Explore/Playground**:
+**Шаг 1 — Cube UI (REST)**: http://localhost:4000 → **Explore/Playground**:
 - Members → Measure: `Sales.revenue` → Run. Итог = Σ выручки.
 - Добавьте Dimension `Sales.customer_region` — получите разрез, он же на дашборде.
 
-**Шаг 2 — Cube SQL API (pg-wire)**: любой SQL-клиент (DBeaver/DBX, подключение —
+**Шаг 2 — Cube SQL API (pg-wire)**: любой SQL-клиент (DBeaver/DBX —
 `docs/cube-sql-clients.md`, `localhost:15432`, креды из вашего `.env`):
 
 ```sql
@@ -158,17 +190,15 @@ golden-вопросов»**: блок `total_revenue` — BigValue «Σ выру
 должен равняться шагам 1–2. Страница **«Выручка»** → KPI «Выручка, всего» — то же число.
 Рядом с каждым блоком: «Проверяет» / «Используется» — где эта цифра живёт на дашбордах.
 
-**Шаг 4 — автосверка harness** (то же самое, но всеми 13 вопросами сразу):
+**Шаг 4 — автосверка harness** (то же всеми 13 вопросами сразу):
 
 ```bash
-just verify    # 69 тестов
+just verify        # 88 тестов (в lake-режиме — just verify-lake)
 ```
 
-Если шаги 1–3 вручную равны, а `just verify` зелёный — стек честен по построению.
+Если шаги 1–3 вручную равны, а verify зелёный — стек честен по построению.
 
 ### Как harness доказывает цифры: три уровня
-
-Каждый из 13 golden-вопросов проверяется тремя независимыми тестами:
 
 | Уровень | Что доказывает | Как |
 |---|---|---|
@@ -176,43 +206,50 @@ just verify    # 69 тестов
 | **Детерминизм** (SQL-hash) | Cube собирает SQL детерминированно (без «плавающих» планов) | SQL из `/v1/sql` хэшируется N раз, хэши равны |
 | **Ground truth** (лог DuckDB) | число пути REST получено **реальным исполнением SQL над витриной**, а не из кэша Cube | см. ниже |
 
-Механика ground truth: Cube стартует с логом запросов (`CUBEJS_DUCKDB_QUERY_LOG`,
-обёртка драйвера в `packages/cube/cube.js`). Каждый исполненный запрос пишется
-в `artifacts/duckdb_query_log.csv` одной строкой:
+Механика ground truth: куб-контейнер стартует с логом запросов
+(`CUBEJS_DUCKDB_QUERY_LOG` → `artifacts/duckdb_query_log.csv`, bind-mount).
+Тест берёт у Cube SQL для вопроса (`/v1/sql`), выполняет вопрос через `/v1/load`
+с `renewQuery: true` (обход кэша) и **ищет этот SQL в логе**: нашёлся → запрос
+реально дошёл до DuckDB. Это защита от «красивого числа из кэша».
 
-```
-started_at,finished_at,duration_ms,status,sql
-2026-10-26T11:41:11.157Z,2026-10-26T11:41:11.167Z,10,OK,SELECT "dim_date".year "sales__year", sum(...)
-```
-
-Тест берёт у самого Cube SQL, который он собирает для вопроса (`/v1/sql`),
-выполняет вопрос через `/v1/load` с `renewQuery: true` (обход кэша — иначе Cube
-ответит из кэша и в логе запроса не будет) и **ищет этот SQL в логе**: нашёлся →
-запрос реально дошёл до DuckDB. Это защита от «красивого числа из кэша».
-
-## 7. Где смотреть отчёты и логи
+## 10. Где смотреть отчёты и логи
 
 | Что | Где | Когда обновляется |
 |---|---|---|
-| Отчёт верификации (13 вопросов, паритет, ground truth) | `artifacts/verify-report.md` | каждый `just verify` |
-| Лог запросов DuckDB: `started_at,finished_at,duration_ms,status,sql` (ground truth + фактическая длительность каждого запроса Cube) | `artifacts/duckdb_query_log.csv` | пишется обёрткой драйвера при каждом запросе |
-| **Производительность**: сводный индекс прогонов | `results/index.md` | каждый `just bench` |
-| **Производительность**: конкретный прогон | `results/runs/<дата-время>/summary.md` (человекочитаемо), `summary.csv`, `detail.csv` (latency 3 путей × повторы) | — |
+| Отчёт верификации (13 вопросов, паритет, ground truth) | `artifacts/verify-report.md` | каждый `just verify` / `verify-lake` |
+| Лог запросов DuckDB `started_at,finished_at,duration_ms,status,sql` (ground truth) | `artifacts/duckdb_query_log.csv` | каждым запросом куба |
+| **Производительность**: индекс прогонов | `results/index.md` | каждый `just bench` / `bench-lake` |
+| Конкретный прогон | `results/runs/<ts>/summary.md` (+ `.csv`) | — |
 | SQL каждого bench-вопроса | `results/queries/<id>.sql` | — |
-| Протокол, как читать метрики | `docs/bench-protocol.md` | — |
-| Логи серверов стека | `artifacts/logs/{cube,evidence}.log` | `scripts/stack.sh up` |
-| Тесты витрины (контракт/star-schema) | `just test` → pytest вывод | после изменения моделей |
+| Протокол метрик (два режима) | `docs/bench-protocol.md` | — |
+| Логи серверов | `docker compose logs cube evidence` | — |
+| Тесты витрины (контракт/star-schema) | `just test` | после изменения моделей |
 
-Пример чтения bench: `results/runs/<ts>/summary.md`, колонки — вопрос, строк,
-latency REST / SQL API / Evidence-source (мс, медиана и лучший), SQL-hash.
+## 11. Если что-то сломалось
 
-## 8. Если что-то сломалось
-
-- Страница Evidence пустая / ошибка консоли → `scripts/stack.sh restart` затем
-  `scripts/stack.sh sources`; глубже — `docs/evidence-setup.md` (приёмка §5).
-- Любая странность с цифрами → `just verify`; если красное — смотреть
-  `artifacts/verify-report.md` какой вопрос и какой путь разошёлся.
-- Полная пересборка → `scripts/stack.sh rebuild` (данные и витрины детерминированы).
+- Страница Evidence пустая / ошибка консоли → `docker compose restart evidence`,
+  затем `docker compose exec evidence npm run sources`; глубже —
+  `docs/evidence-setup.md` (host-runbook для отладки).
+- Любая странность с цифрами → `just verify` (`verify-lake`); красное — смотреть
+  `artifacts/verify-report.md`: какой вопрос и какой путь разошёлся.
+- Полная пересборка → `just rebuild [SF]` (file) / `just rebuild-lake [SF]` (lake)
+  — данные детерминированы (dbgen + sqlmesh).
 - Словарь известных грабель → `docs/gotchas.md` (симптом → причина → решение).
 - AI-агенту (opencode/Claude Code) нужен доступ к метрикам → MCP-сервер
   `docs/cube-mcp.md` (подключается одной командой, read-only).
+
+## 12. Чек-лист приёмки (UAT)
+
+Прогон «как новый пользователь» — каждый сценарий ведёт разделами этого
+руководства и соседних доков. Критерий закрытия: все строки пройдены,
+замечания — в `docs/plan.md` §9 (реестр вопросов) как fast-follow.
+
+| # | Сценарий | Где | Критерий успеха |
+|---|---|---|---|
+| 1 | Быстрый старт с нуля, file-режим | §3: clone → `.env` → `uv sync` → `just rebuild` | Evidence :3000 и Cube :4000 отвечают; `verify` **88/1** (куб в проде) |
+| 2 | File-демо: сверка цифр + bench | §9 (три пути `total_revenue`) + `just bench` | число совпало на всех путях; bench 13/13 parity → `results/` |
+| 3 | DuckLake с нуля | §4: `compose up` → `seed-lake` → `apply-lake` → `serve-up` (WAREHOUSE_MODE=ducklake) | `verify-lake` **88/1** |
+| 4 | Переход file ↔ ducklake | §5 | `printenv WAREHOUSE_MODE` подтверждает режим; verify зелёной в обоих |
+| 5 | Смена sf | §6: `just rebuild 2` / `just rebuild-lake 10` | числа масштабировались; verify зелёной; повторный rebuild-lake бакет не раздул |
+| 6 | RBAC-демо (прод-контейнер) | `CUBEJS_DEV_MODE=false just serve-up` → `docs/cube-rbac.md` §«Руководство по проверке пользователем (пошагово)» | Admin видит всё; user — ровно 3 меры и только свой регион |
+| 7 | MCP-агент | `docs/cube-mcp.md` §«Сценарии проверки MCP через AI-агента» (4 демо с эталонными числами) | все сценарии — совпадение чисел с эталонами |

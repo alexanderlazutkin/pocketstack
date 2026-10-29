@@ -1,7 +1,10 @@
-# Evidence: установка с нуля (Stage 4, runbook)
+# Evidence: host-runbook (отладка вне контейнера; Stage 4)
 
-Консолидирует ВСЕ проблемы, решённые при развёртывании Evidence 40.1.8.
-Каждый пункт ниже — следствие реального падения (детали и диагностика: `docs/gotchas.md`, раздел Evidence).
+> **Основной способ запуска — контейнер** (`just evidence` / `just serve-up`):
+> Node 20.19.0 и зависимости зашиты в образ `docker/evidence`, connection.yaml
+> рендерится entrypoint'ом. Этот документ — как запустить Evidence **на хосте**
+> (отладка шаблона/страниц вне контейнера) + консолидированные грабли установки.
+> Каждый пункт ниже — следствие реального падения (детали: `docs/gotchas.md`).
 
 ## 0. Предусловия
 
@@ -13,10 +16,7 @@
 | Cube | контейнер serve-профиля (`just serve-up`, :4000 REST / :15432 pg-wire) | нужен ТОЛЬКО для материализации sources, не для рантайма страниц |
 | Chrome (опция) | `~/.cache/puppeteer/chrome/…` | headless-проверка `scripts/visual-check.mjs` |
 
-Основной способ запуска — контейнер (Stage 7, шаг 7): `just evidence`
-(= `docker compose --profile serve up -d --wait evidence`; deps и connection.yaml
-рендерятся в entrypoint). Разделы ниже — хостовой runbook Stage 4 (исторический
-+ отладка вне контейнера): там нужен user-local Node 20.19.0:
+Для host-runbook ниже нужен user-local Node 20.19.0 (в контейнере уже есть):
 
 ```bash
 mkdir -p ~/.local/opt && cd ~/.local/opt
@@ -28,15 +28,15 @@ tar xf node-v20.19.0-linux-x64.tar.xz && rm node-v20.19.0-linux-x64.tar.xz
 
 ## 1. Пакет уже в репо — изнутри репозитория
 
-`packages/evidence` коммитится целиком (pages, sources, connection.yaml, package.json+lock).
-С нуля внутри репо:
+`packages/evidence` коммитится целиком (pages, sources, connection.yaml.example,
+package.json+lock). С нуля внутри репо:
 
 ```bash
 cd packages/evidence
 PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH npm ci --legacy-peer-deps
 ```
 
-- Строго `npm ci` с_lock из шаблона: `npm install` сам резолвит несовместимые версии.
+- Строго `npm ci` с lock-файлом из шаблона: `npm install` сам резолвит несовместимые версии.
 - `--legacy-peer-deps` обязателен (конфликт peer'ов дерева Evidence 40.1.8).
 
 ## 2. Если package пересоздаётся (шаблон, не из репо)
@@ -61,34 +61,34 @@ PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH \
 
 ## 3. Конфигурация
 
-- `connection.yaml` источника `cube` **генерируется из `.env`** скриптом
-  `scripts/render-evidence-connection.sh` (вызывается `stack.sh up/sources` и
-  `just evidence` автоматически): Evidence 40.1.8 не интерполирует `${VAR}` в
-  connection.yaml. Шаблон с плейсхолдерами — `connection.yaml.example` (в git);
-  сгенерированный файл с реальными кредами — вне git (.gitignore).
-- Второй источник `duckdb_local` — read-only, без кредов (`filename` — путь
-  ОТ каталога источника).
+- В **контейнере** `connection.yaml` источника `cube` рендерится из env при
+  старте (`docker/evidence/entrypoint.sh`; Evidence 40.1.8 не интерполирует
+  `${VAR}`). На **хосте** — скриптом `scripts/render-evidence-connection.sh`
+  перед запуском. Сгенерированный файл с реальными кредами — вне git.
+- Источник `duckdb_local` — read-only отладка на хосте (в контейнере
+  отключён: entrypoint удаляет его connection.yaml — путей хоста там нет).
 - Архитектура данных: страницы исполняют запросы в DuckDB-WASM в браузере поверх
   parquet из `.evidence/template/static/data/`; живой Cube трогается только материализацией.
   Поэтому вся метрика — в `sources/cube/*.sql` (golden-SQL дословно), страницы — тонкие
   `select * from cube.<id>` + `${inputs}`-фильтры.
 
-## 4. Запуск (порядок обязателен)
+## 4. Запуск на хосте (порядок обязателен)
 
 ```bash
-# 1) Cube (нужен только для материализации)
-PATH=$HOME/.local/bin:$PATH just cube &          # :4000/:15432
+# 1) Куб (нужен только для материализации; контейнер или хостовый just cube)
+just serve-up &                                  # :4000/:15432
 
-# 2) Материализация sources (22 таблицы; Cube должен быть поднят!)
+# 2) Материализация sources (22 таблицы; куб должен быть поднят!)
+scripts/render-evidence-connection.sh
 cd packages/evidence
+PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH npm ci --legacy-peer-deps  # раз
 PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH npm run sources
 
 # 3) Dev-сервер страниц
 PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH npm run dev   # :3000
-# то же одной командой: PATH=$HOME/.local/bin:$PATH just evidence
 ```
 
-`just evidence` уже зашит на Node 20. Системный npm/node (24) стартовать нельзя.
+Node 20.19.0 — user-local (§0); системный Node 24 стартовать нельзя (ломает SSR).
 
 ## 5. Приёмка после установки
 
@@ -115,6 +115,7 @@ PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH node scripts/visual-check.mj
 
 ## 7. Обновление данных
 
-После `just apply` (sqlmesh) повторить §4 п.2 — sources перечитывают Cube.
+После `just apply` (sqlmesh) перематериализовать sources: в контейнере —
+`docker compose exec evidence npm run sources`, на хосте — §4 п.2.
 Материализация read-only по DuckDB — с работающим Cube не конфликтует.
-Перед `just apply` Cube останавливать (duckdb lock).
+Перед `just apply` в file-режиме снимите лок куба (`just cube-stop`).

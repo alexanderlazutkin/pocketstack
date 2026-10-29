@@ -21,8 +21,9 @@ Cube отдаёт SQL API по протоколу PostgreSQL (pg-wire) на по
 Креды задаются в `.env` (шаблон `.env.example`; пароль — `openssl rand -hex 32`).
 Код фолбэков не содержит: без `.env` SQL API не примет дефолтные логин/пароль.
 
-**Предусловие**: запущен Cube dev-сервер — `PATH=$HOME/.local/bin:$PATH just cube`
-(REST :4000 + SQL API :15432). Без него подключения не будет.
+**Предусловие**: куб-контейнер поднят — `just serve-up`
+(REST :4000 + SQL API :15432; хостовая dev-опция — `just cube`). Без него
+подключения не будет.
 
 ## DBeaver
 
@@ -73,6 +74,7 @@ SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
 
 ## Отличие от Evidence
 
-Дашборды Evidence читают **материализованные parquet** (DuckDB-WASM), а SQL-клиенты
-попадают на **живой Cube** — при изменении данных (`just apply`) клиенты видят
-новое сразу, дашборды после `npm run sources` (см. `docs/evidence-setup.md` §7).
+Дашборды Evidence читают **материализованные источники** (кэш собирается из
+Cube командой sources), а SQL-клиенты попадают на **живой Cube** — при
+изменении данных (`just apply`) клиенты видят новое сразу, дашборды — после
+`docker compose exec evidence npm run sources`.
