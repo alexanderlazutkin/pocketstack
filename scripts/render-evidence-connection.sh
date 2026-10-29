@@ -2,7 +2,8 @@
 # Генерация packages/evidence/sources/cube/connection.yaml из .env.
 # Evidence 40.1.8 НЕ интерполирует ${VAR} в connection.yaml, поэтому креды
 # подставляются рендером (сам файл с реальными секретами — вне git).
-# Вызывается автоматически: scripts/stack.sh (up/sources), `just evidence`.
+# Контейнер evidence рендерит connection.yaml сам (docker/evidence/entrypoint.sh);
+# этот скрипт — только для запуска Evidence на хосте (docs/evidence-setup.md).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

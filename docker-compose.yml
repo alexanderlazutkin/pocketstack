@@ -1,10 +1,10 @@
 # pocketstack — DuckLake-инфраструктура (опция для тренировок; основной режим — файл).
 # Каталог (PostgreSQL) + хранилище parquet (MinIO) + инициализация бакета.
-# Serving-контейнеры (cube/evidence, вариант A) добавятся позже отдельным профилем.
 #
-#   docker compose up -d --wait   # поднять каталог + S3 (ждать healthchecks)
-#   docker compose down           # остановить (данные в volume'ах остаются)
-#   docker compose down -v        # снести вместе с данными
+#   docker compose up -d --wait        # поднять каталог + S3 (ждать healthchecks)
+#   docker compose run --rm minio-init # создать бакет (идемпотентно; = just lake-init)
+#   docker compose down                # остановить (данные в volume'ах остаются)
+#   docker compose down -v             # снести вместе с данными (бакет → пересоздать lake-init)
 #
 # Секреты — только из .env (см. .env.example); без .env compose откажется стартовать.
 # Порты публикуются ТОЛЬКО на 127.0.0.1 (как и весь стек pocketstack).
@@ -51,8 +51,11 @@ services:
     restart: unless-stopped
 
   # One-shot: создать бакет (идемпотентно). mc — из того же образа elestio/minio.
-  # Позже здесь же — утилиты чистки (Stage 7, шаг 8).
+  # В профиле init: НЕ участвует в `up -d --wait` (compose считает one-shot
+  # exited(0) падением ожидания). Запуск: `docker compose run --rm minio-init`
+  # (или `just lake-init`; встроен в seed-lake/rebuild-lake).
   minio-init:
+    profiles: ["init"]
     image: elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
     depends_on:
       minio:
