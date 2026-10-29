@@ -152,6 +152,16 @@ docker compose logs cube evidence   # логи серверов (или -f дл�
 Прод/dev куба — переменной при поднятии: `CUBEJS_DEV_MODE=false just serve-up`
 (прод: строгие токены + RBAC; dev — playground на :4000 и безтокенный admin).
 
+### Остановка стека (по режимам)
+
+| Что остановить | Команда | Комментарий |
+|---|---|---|
+| Только serving (куб+evidence) | `just serve-down` | Освобождает лок `warehouse/*.duckdb` — можно `just apply`/`seed`. Infra-контейнеры (pg, minio) продолжат работать |
+| **Стек DuckDB (file) полностью** | `just serve-down` + `docker compose stop postgres minio` | Файл-витрина в `warehouse/` — данные на месте; pg/minio поднимаются serve-up'ом даже в file-режиме, потому их и останавливаем |
+| **Стек DuckLake полностью** | `docker compose --profile serve stop` | Остановит и serving, и инфраструктуру (pg-каталог + MinIO); данные остаются в volumes. Обратно — `just serve-up` |
+| Снести контейнеры (данные lake сохранить) | `docker compose --profile serve down` | Контейнеры удалятся, volumes (`pgdata`, `miniodata`) останутся |
+| Снести всё, состояние «с нуля» | `docker compose --profile serve down -v` и `rm warehouse/*.duckdb*` | Удаляет volumes lake (каталог+бакет) и файлы file-режима; `.env` остаётся → старт по §3/§4 |
+
 ## 8. Разблокировка DuckDB (Conflicting lock)
 
 **Симптом**: `just apply` / `just seed` / `sqlmesh plan` падает с

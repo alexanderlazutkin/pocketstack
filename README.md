@@ -138,7 +138,9 @@ Serving и lake-инфраструктура — `docker compose` (профил�
 
 ```bash
 just serve-up      # поднять cube+evidence (+ ducklake-инфраструктуру, если не поднята)
-just serve-down    # снять serving, не трогая lake-инфраструктуру
+just serve-down    # снять только serving (куб+evidence); инфраструктура работает
+docker compose --profile serve stop   # остановить всё (данные в volumes остаются)
+docker compose --profile serve down -v # снести с данными lake (к «с нуля»)
 just cube-stop     # снять лок куба перед just apply/reset в file-режиме
 just rebuild SF    # полный пересбор file-режима (транзакционно)
 just rebuild-lake SF  # полный пересбор ducklake-режима (без остановки куба)
