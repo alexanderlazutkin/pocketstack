@@ -235,6 +235,13 @@
 ## Окружение
 
 - **just не ставился системой**: `uv tool install rust-just` → `~/.local/bin/just` (проверять PATH).
+- **Порт 9000 занят snap-сервисом lemonade-server** (симптом: `compose up` →
+  `ports are not available: ... 127.0.0.1:9000: bind: address already in use`;
+  держатель виден в `ss -tlnpe 'sport = :9000'` — cgroup `snap.lemonade-server...`).
+  Лечение — НЕ трогать чужой сервис, а перепараметризовать наш порт:
+  `DUCKLAKE_S3_PORT=9002` + `DUCKLAKE_S3_ENDPOINT=localhost:9002` в `.env`
+  (endpoint у duckdb per-session, каталогу и данным порт не важен). Проверено
+  2026-10-29: infra healthy, lake читается (fact_sales 6 001 215, sf=1).
 - **Chrome для chrome-devtools MCP отсутствует** (`/opt/google/chrome/chrome`): доступен
   puppeteer-кеш `~/.cache/puppeteer/chrome/*/chrome-linux64/chrome` через `puppeteer-core` + Firefox для интерактива.
 - **artifacts/ — в корне репо**, не в packages/*: `artifacts/verify-report.md` — в git,
@@ -277,8 +284,9 @@
 - `npm create evidence@latest` СЛОМАН (create-evidence без bin, 404) — шаблон брать:
   `git clone --depth 1 -b legacy https://github.com/evidence-dev/template`.
 - Node 24 ломает SSR: `Cannot find module '__SERVER__/internal.js'` (sveltekit/vite).
-  Рабочая связка — Node 20: бинарь в `~/.local/opt/node-v20.19.0-linux-x64/bin/node`,
-  запуск: `PATH=~/.local/opt/node-v20.19.0-linux-x64/bin:$PATH npm run dev`.
+  Рабочая связка — Node 20. С Stage 7 (шаг 7) Evidence в контейнере
+  (`docker/evidence`, пин `node:20.19.0-bookworm`) — Node на хосте не нужен.
+  Для хостового dev вне контейнера — user-local бинарь 20.19.0 + PATH-префикс.
 - Ставить зависимости строго `npm ci --legacy-peer-deps` c package-lock из шаблона:
   самостоятельный `npm install` резолвит несовместимые версии.
 

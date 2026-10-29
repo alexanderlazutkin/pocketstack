@@ -41,8 +41,9 @@ test:
     {{python}} pytest -q
 
 # Stage 3: верификационный harness (golden-вопросы, rows/SQL-паритет, RBAC).
-# Требует запущенного Cube: `just cube-prod` — RBAC-тесты работают только
-# в прод-режиме; в dev (`just cube`) они пропускаются (guard в test_rbac.py).
+# Требует запущенного Cube: прод-контейнер `CUBEJS_DEV_MODE=false just serve-up`
+# — RBAC-тесты работают только в прод-режиме; в dev (куб по умолчанию)
+# они пропускаются (guard в test_rbac.py). Хостовый `just cube-prod` — опция.
 # CUBEJS_DUCKDB_QUERY_LOG включает ground truth для `just verify`.
 verify:
     HARNESS_STRICT=1 {{python}} pytest packages/harness -q
@@ -73,7 +74,7 @@ cube-stop:
     docker compose stop cube
 
 # Протокол оценки запросов (docs/bench-protocol.md): latency 3 путей + файлы SQL + сводная.
-# Требует запущенного `just cube`.
+# Требует запущенного куба (контейнер `just serve-up` или хостовый `just cube`).
 bench:
     cd packages/harness && {{python}} python -m harness.bench
 
@@ -96,11 +97,12 @@ cube-prod:
     mkdir -p artifacts
     cd packages/cube && CUBEJS_DUCKDB_QUERY_LOG={{justfile_directory()}}/artifacts/duckdb_query_log.csv npm run prod
 
-# Stage 4: evidence dev-сервер (ТОЛЬКО Node 20: системный 24.x ломает sveltekit/vite SSR,
-# см. docs/gotchas.md «Установка/версии»). connection.yaml рендерится из .env
+# Stage 4 → 7.1: Evidence — в контейнере (пин Node 20.19.0 внутри образа,
+# docker/evidence/Dockerfile; системный 24.x ломает sveltekit/vite SSR —
+# docs/gotchas.md «Установка/версии»). connection.yaml рендерится в entrypoint.
+# Поднимает и cube (depends_on), + ducklake-инфраструктуру.
 evidence:
-    scripts/render-evidence-connection.sh
-    cd packages/evidence && PATH=$(HOME)/.local/opt/node-v20.19.0-linux-x64/bin:$(PATH) npm run dev
+    docker compose --profile serve up -d --wait evidence
 
 # RBAC (docs/cube-rbac.md): JWT для ручных проверок REST под ролью.
 # Стек ПО УМОЛЧАНИЮ работает под admin — токен user нужен только для сценария B.

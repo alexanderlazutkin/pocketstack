@@ -7,13 +7,16 @@
 
 | Что | Требование | Почему |
 |---|---|---|
-| Node | **20.x** (проверено 20.19.0), локально в `~/.local/opt/node-v20.19.0-linux-x64/` | Системный Node 24 ломает SSR: `Cannot find module '__SERVER__/internal.js'` (sveltekit/vite) |
-| npm | >=7 (в комплекте Node 20) | `overrides` в package.json |
+| Node | **20.19.0 — ВНУТРИ контейнера** `docker/evidence` (на хосте не нужен) | Системный Node 24 ломает SSR: `Cannot find module '__SERVER__/internal.js'` (sveltekit/vite) |
+| npm | >=7 (в комплекте Node 20 в образе) | `overrides` в package.json |
 | DuckDB-витрина | `warehouse/` собрана (`just seed && just plan && just apply`) | Evidence читает только материализованное |
-| Cube dev | запущен (`just cube`, :4000 REST / :15432 pg-wire) | нужен ТОЛЬКО для материализации sources, не для рантайма страниц |
+| Cube | контейнер serve-профиля (`just serve-up`, :4000 REST / :15432 pg-wire) | нужен ТОЛЬКО для материализации sources, не для рантайма страниц |
 | Chrome (опция) | `~/.cache/puppeteer/chrome/…` | headless-проверка `scripts/visual-check.mjs` |
 
-Установка Node 20 без глобальных изменений (user-local, как у нас):
+Основной способ запуска — контейнер (Stage 7, шаг 7): `just evidence`
+(= `docker compose --profile serve up -d --wait evidence`; deps и connection.yaml
+рендерятся в entrypoint). Разделы ниже — хостовой runbook Stage 4 (исторический
++ отладка вне контейнера): там нужен user-local Node 20.19.0:
 
 ```bash
 mkdir -p ~/.local/opt && cd ~/.local/opt

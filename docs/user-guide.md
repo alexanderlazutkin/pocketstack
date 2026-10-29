@@ -12,18 +12,13 @@ DuckDB, сценарий сверки цифр через UI Cube и Evidence BI
 |---|---|---|
 | Linux (bash) | — | — |
 | [uv](https://docs.astral.sh/uv/) (Python 3.12) | актуальный | `uv --version` |
-| Node.js | **20.x**, user-local `~/.local/opt/node-v20.19.0-linux-x64/` | `~/.local/opt/node-v20.19.0-linux-x64/bin/node --version` |
+| Docker (Engine + compose v2 / Desktop) | актуальный | `docker compose version` |
 | just (опц.) | `uv tool install rust-just` → `~/.local/bin/just` | `just --version` |
 | Chrome (опц.) | для автопроверки страниц Evidence | — |
 
-Node 20 обязателен для Evidence (системный Node 24 ломает SSR — `docs/gotchas.md`).
-Установка — user-local, без глобальных изменений:
-
-```bash
-mkdir -p ~/.local/opt && cd ~/.local/opt
-curl -fsSLO https://nodejs.org/dist/v20.19.0/node-v20.19.0-linux-x64.tar.xz
-tar xf node-v20.19.0-linux-x64.tar.xz && rm node-v20.19.0-linux-x64.tar.xz
-```
+Serving-слой (Cube, Evidence) и ducklake-инфраструктура — в контейнерах
+(`just serve-up`); Node на хосте НЕ нужен (пин 20.19.0 зашит в образ
+`docker/evidence/Dockerfile`). На хосте остаются pipeline (uv), harness, MCP.
 
 ## 2. Установка проекта с нуля
 
@@ -37,8 +32,9 @@ $EDITOR .env        # CUBEJS_API_SECRET, CUBESQL_PASSWORD, CUBESQL_RBAC_PASSWORD
 # Python-окружение (sqlmesh, harness, duckdb 1.5.5)
 uv sync
 
-# Зависимости Evidence (строго ci + legacy-peer-deps, см. docs/evidence-setup.md)
-cd packages/evidence && npm ci --legacy-peer-deps && cd ../..
+# (опц.) Зависимости Evidence на хосте — ТОЛЬКО для dev вне контейнера;
+# контейнер docker/evidence ставит их сам (npm ci --legacy-peer-deps в образе)
+# cd packages/evidence && npm ci --legacy-peer-deps && cd ../..
 
 # БД + витрины + стек + материализация — одной командой (sf=1 по умолчанию)
 scripts/stack.sh rebuild
@@ -63,6 +59,13 @@ just seed 2 && just apply && scripts/stack.sh up && scripts/stack.sh sources
 равенство трёх путей; абсолютные числа масштабируются с данными.
 
 ## 4. Ежедневный запуск и остановка
+
+> **Stage 7 (шаг 7.1)**: serving-слой по умолчанию — контейнеры.
+> Эквиваленты: `just serve-up` (= up), `just serve-down` (= down),
+> `just cube-stop` (снять лок куба перед `just apply` в file-режиме),
+> `just evidence` (поднять Evidence). `stack.sh` ниже — host-ветка
+> (legacy; судьба решается на ревью Stage 7). Логи контейнеров:
+> `docker compose logs cube evidence`.
 
 ```bash
 scripts/stack.sh status    # Cube :4000, SQL API :15432, Evidence :3000, размер БД
