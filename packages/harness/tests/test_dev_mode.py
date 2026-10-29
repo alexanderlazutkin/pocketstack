@@ -6,11 +6,9 @@ deny by default (WHERE 1=0). Фикс — dev-фолбэк в contextToGroups (c
 безтокенный запрос в dev = группа admin. Проверяем через REST /v1/load.
 """
 
-import os
 
 import pytest
 import requests
-
 from conftest import CUBE_URL_VALUE
 
 

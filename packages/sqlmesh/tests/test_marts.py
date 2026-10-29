@@ -1,24 +1,13 @@
 """TDD: звезда marts.* собрана из raw_tpch по контракту dbt-моделей пользователя (automate-dv-tpch).
 
 Пока `just apply` (sqlmesh) не выполнен — схема marts отсутствует, тесты RED.
-Контракты колонок и rowcount'ы соответствуют канону TPC-H sf=1 и models/marts исходного репо.
+Контракты колонок — канон models/marts исходного репо; rowcount'ы — канон sf=1,
+масштабируются по маркеру pocketstack_meta (целые sf; см. tests/conftest.py).
 """
-
-from pathlib import Path
 
 import duckdb
 import pytest
-
-REPO = Path(__file__).resolve().parents[3]
-WAREHOUSE = REPO / "warehouse" / "pocketstack.duckdb"
-
-EXPECTED_COUNTS = {
-    "dim_customer": 150_000,
-    "dim_supplier": 10_000,
-    "dim_part": 200_000,
-    "dim_order": 1_500_000,
-    "fact_sales": 6_001_215,
-}
+from conftest import MARTS_BASE, WAREHOUSE, assert_count, require_int_sf, scaled
 
 CONTRACT = {
     "dim_customer": {
@@ -115,11 +104,12 @@ def marts(con):
     return tables
 
 
-@pytest.mark.parametrize("table,expected", sorted(EXPECTED_COUNTS.items()))
-def test_rowcount(con, marts, table, expected):
+@pytest.mark.parametrize("table", sorted(MARTS_BASE))
+def test_rowcount(con, marts, table):
     assert table in marts, f"marts.{table} отсутствует"
+    expected = scaled(MARTS_BASE, require_int_sf(con))[table]
     n = con.execute(f"SELECT COUNT(*) FROM marts.{table}").fetchone()[0]
-    assert n == expected, f"marts.{table}: {n} != {expected}"
+    assert_count(table, n, expected)
 
 
 @pytest.mark.parametrize("table,columns", sorted(CONTRACT.items()))

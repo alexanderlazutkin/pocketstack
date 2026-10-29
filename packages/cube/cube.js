@@ -4,6 +4,13 @@ const { DuckDBDriver } = require('@cubejs-backend/duckdb-driver');
 
 const WAREHOUSE = path.resolve(__dirname, '../../warehouse/pocketstack.duckdb');
 
+// Режим хранилища (Stage 7): file (основной) | ducklake (pg-каталог + MinIO).
+// Переключатель — WAREHOUSE_MODE в .env (см. .env.example).
+const WAREHOUSE_MODE = process.env.WAREHOUSE_MODE || 'file';
+if (!['file', 'ducklake'].includes(WAREHOUSE_MODE)) {
+  throw new Error(`Неизвестный WAREHOUSE_MODE=${WAREHOUSE_MODE} (допустимо file|ducklake)`);
+}
+
 // Секреты — ТОЛЬКО из окружения (.env из корня репо, см. .env.example).
 // Загружаем .env без перезаписи уже установленных переменных.
 (function loadDotenv() {
@@ -55,6 +62,45 @@ class TimingDuckDBDriver extends DuckDBDriver {
       throw e;
     }
   }
+
+  // DuckLake (Stage 7, шаг 5): init на КАЖДОМ коннекте пула — ATTACH/SET суть
+  // свойства сессии; инициализация только одного коннекта даёт «плавающие»
+  // ошибки на части запросов. Каталог цепляем READ_ONLY: защита от случайной
+  // AUTOMATIC_MIGRATION со стороны читателя (docs/plan.md Stage 7).
+  async configureConnection(connection) {
+    await super.configureConnection(connection);
+    if (WAREHOUSE_MODE !== 'ducklake') return;
+
+    const run = (sql) => connection.run(sql);
+    for (const ext of ['httpfs', 'postgres', 'ducklake']) {
+      try {
+        await run(`LOAD ${ext}`);
+      } catch (_) {
+        await run(`INSTALL ${ext}`);
+        await run(`LOAD ${ext}`);
+      }
+    }
+    for (const sql of [
+      `SET s3_endpoint='${requiredEnv('DUCKLAKE_S3_ENDPOINT')}'`,
+      'SET s3_use_ssl=false',
+      "SET s3_url_style='path'",
+      `SET s3_access_key_id='${requiredEnv('DUCKLAKE_S3_ACCESS_KEY')}'`,
+      `SET s3_secret_access_key='${requiredEnv('DUCKLAKE_S3_SECRET_KEY')}'`,
+    ]) {
+      await run(sql);
+    }
+    const dsn =
+      `postgres:dbname=${requiredEnv('DUCKLAKE_PG_DB')}` +
+      ` user=${requiredEnv('DUCKLAKE_PG_USER')} password=${requiredEnv('DUCKLAKE_PG_PASSWORD')}` +
+      ` host=${requiredEnv('DUCKLAKE_PG_HOST')} port=${requiredEnv('DUCKLAKE_PG_PORT')}`;
+    const dataPath = `s3://${requiredEnv('DUCKLAKE_S3_BUCKET')}/`;
+    // Алиас = pocketstack: семантическая модель адресует хранилище по логическому
+    // имени каталога (pocketstack.marts.*) — одинаково в file- и ducklake-режимах
+    await run(
+      `ATTACH '${dsn}' AS pocketstack (TYPE ducklake, DATA_PATH '${dataPath}', READ_ONLY)`
+    );
+    await run('USE pocketstack');
+  }
 }
 
 function logQuery(startedAt, finishedAt, status, queryText) {
@@ -72,10 +118,13 @@ function logQuery(startedAt, finishedAt, status, queryText) {
 }
 
 module.exports = {
+  // file: initSql аттачит локальный файл READ_ONLY (основной режим);
+  // ducklake: инициализация каждого коннекта — в TimingDuckDBDriver
+  // .configureConnection (ATTACH lake READ_ONLY + USE lake), см. Stage 7 шаг 5.
   driverFactory: () =>
-    new TimingDuckDBDriver({
-      initSql: `ATTACH '${WAREHOUSE}' (READ_ONLY)`,
-    }),
+    new TimingDuckDBDriver(
+      WAREHOUSE_MODE === 'ducklake' ? {} : { initSql: `ATTACH '${WAREHOUSE}' (READ_ONLY)` }
+    ),
   apiSecret: requiredEnv('CUBEJS_API_SECRET'),
   sqlPort: 15432,
   // pg-wire (psql/psycopg): в dev mode порт 15432 подразумевается, в прод — нет.

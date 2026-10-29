@@ -34,7 +34,7 @@ git clone <repo-url> pocketstack && cd pocketstack
 cp .env.example .env
 $EDITOR .env        # CUBEJS_API_SECRET, CUBESQL_PASSWORD, CUBESQL_RBAC_PASSWORD: openssl rand -hex 32
 
-# Python-окружение (sqlmesh, harness, duckdb 1.4.4)
+# Python-окружение (sqlmesh, harness, duckdb 1.5.5)
 uv sync
 
 # Зависимости Evidence (строго ci + legacy-peer-deps, см. docs/evidence-setup.md)
@@ -67,7 +67,7 @@ just seed 2 && just apply && scripts/stack.sh up && scripts/stack.sh sources
 ```bash
 scripts/stack.sh status    # Cube :4000, SQL API :15432, Evidence :3000, размер БД
 scripts/stack.sh up        # поднять (идемпотентно: работающее не трогает)
-scripts/stack.sh down      # остановить всё
+	      # остановить всё
 scripts/stack.sh restart   # down + up (напр., после смены CUBEJS_DEV_MODE в .env)
 scripts/stack.sh sources   # перематериализовать Evidence из Cube (после just apply)
 ```

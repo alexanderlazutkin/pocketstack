@@ -7,14 +7,73 @@
 
 ## DuckDB: версии и блокировки
 
-### Системный CLI 2.0 vs venv 1.4.4
+### Системный CLI 2.0 vs venv 1.5.5
 - **Симптом**: файл warehouse становится нечитаем для Cube/sqlmesh/node-duckdb.
 - **Причина**: запись/чекпойнт системным DuckDB 2.0 поднимает версию формата файла.
-  Эмпирически (Stage 6 watch, 2026-10-26): 2.0 пишет формат v999; движок 1.4.4 читает
-  только v64–67 → «Trying to read a database file with version number 999…».
-- **Решение**: системный CLI — только `just cli-readonly`. Всё записное — через venv 1.4.4.
+  Эмпирически (Stage 6 watch, 2026-10-26): 2.0 пишет формат v999; движок 1.5.5 читает
+  только v64–68 → «Trying to read a database file with version number 999…».
+- **Решение**: системный CLI — только `just cli-readonly`. Всё записное — через venv 1.5.5.
   Следствие: миграция на 2.0 возможна только всем стеком разом (npm-биндинги Cube/Evidence
   + sqlmesh), см. `docs/plan.md` Stage 6.
+
+### ducklake: один каталог = один DATA_PATH
+- **Симптом**: `DATA_PATH parameter "s3://bucket/warehouse/" does not match existing data path
+  in the catalog "s3://bucket/probe/"` при ATTACH.
+- **Причина**: pg-каталог запоминает data-path первой ATTACH-ии и сверяет его при каждом
+  подключении; сменить префикс на живом каталоге нельзя (`OVERRIDE_DATA_PATH` — только
+  осознанно, файлы расползутся по префиксам).
+- **Решение**: канонический `DATA_PATH = s3://<bucket>/` (корень); структуру задаём
+  схемами ducklake (`raw_tpch/`, `marts/` — dir-per-table), а не префиксами ATTACH.
+
+### ducklake: PRIMARY KEY / UNIQUE не поддерживаются
+- **Симптом**: `Not implemented Error: PRIMARY KEY/UNIQUE constraints are not supported
+  in DuckLake` на CREATE TABLE.
+- **Решение**: таблицы без констрейнтов; уникальность ключей мелких мета-таблиц —
+  паттерном DELETE+INSERT (`pocketstack_meta` в seed_tpch.py).
+
+### dbgen: lineitem нелинеен от sf
+- **Симптом**: при sf=10 lineitem = 59 986 052, а не 6 001 215×10 = 60 012 150
+  (orders при этом ровно 15 000 000).
+- **Причина**: dbgen порождает 1–7 строк lineitem на заказ с рандомизацией; счётчик
+  детерминирован для каждого sf, но не кратен sf=1.
+- **Решение**: в тестах допуск 0.1% для lineitem/fact_sales
+  (`tests/conftest.py: APPROX_REL`), остальные таблицы и dim_* линейны точно,
+  region/nation — константы (5/25).
+
+### Cube + ducklake: алиас каталога = «pocketstack», init на каждом коннекте
+- **Симптом**: `Binder Error: Catalog "pocketstack" does not exist!` — семантическая
+  модель адресует хранилище трёхчастно (`pocketstack.marts.*`, имя = стем файла в
+  file-режиме), а ducklake-каталог зааттачен под другим алиасом.
+- **Причина**: initSql/ATTACH — свойства сессии; пул коннектов Cube инициализирует
+  каждый коннект отдельно (хук `configureConnection`), алиас каталога из модели —
+  договорённость, не физическое имя.
+- **Решение**: ducklake-каталог аттачится `AS pocketstack` — модель не меняется,
+  логическое имя хранилища одинаково в file/ducklake; вся инициализация
+  (расширения → SET s3_* → ATTACH READ_ONLY → USE) — в override
+  `TimingDuckDBDriver.configureConnection` (cube.js). READ_ONLY — защита от случайной
+  AUTOMATIC_MIGRATION каталога читателем. Стресс-сравнение ответов пула — только по
+  `data` (lastUpdatedTime/requestId легитимно уникальны), `scripts/cube_stress.py`.
+
+### sqlmesh + ducklake: lake — каталог по умолчанию (не search_path)
+- **Симптом**: `Catalog Error: Schema with name sqlmesh__marts does not exist!`,
+  попытки писать в `"memory"."marts".*`.
+- **Причина**: sqlmesh квалифицирует имена каталогом по умолчанию; при
+  `database: ":memory:"` + ATTACH lake весь физический слой уезжает в память,
+  search_path не спасает (квалификация явная). Плюс sqlmesh запрещает
+  `database` вместе с `catalogs` («первый entry = каталог по умолчанию»).
+- **Решение**: в gateway `lake` каталог ducklake — ПЕРВЫЙ (и единственный) entry
+  `catalogs`; физика тогда `lake.sqlmesh__marts.*`, прод-view `lake.marts.*`,
+  `raw_tpch.*` резолвится сюда же. Секреты — Jinja `{{ env_var('X') }}` в config.yaml.
+
+
+- **Симптом**: `DuckLake catalog version mismatch: catalog version is 0.3, but the
+  extension requires version 1.0` при attach каталога, созданного другим движком.
+- **Причина**: версия каталога привязана к сборке ducklake-расширения конкретного движка:
+  python 1.4.4 → v0.3, node 1.5.5 → v1.0. Не зависит от типа каталога (файл/postgres).
+  `AUTOMATIC_MIGRATION TRUE` односторонняя: после неё старый клиент каталог не открывает
+  (плюс storage-версия файла каталога становится v68 > v67).
+- **Решение**: все движки на одной версии DuckDB (пины 1.5.5, выравнено 2026-10-28);
+  каталог создаёт эта же версия; Cube в ducklake-схеме аттачится READ_ONLY.
 
 ### Cube держит блокировку warehouse
 - **Симптом**: `sqlmesh plan` падает `Could not set lock on file ... Conflicting lock is held in node`.

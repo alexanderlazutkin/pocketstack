@@ -17,6 +17,17 @@ plan:
 apply:
     cd packages/sqlmesh && {{python}} sqlmesh plan --auto-apply --no-prompts
 
+# Stage 7 (шаг 4): ducklake-режим — gateway lake (pg-каталог + MinIO; state в
+# warehouse/lake_state.duckdb). Инфраструктура: docker compose up -d --wait
+seed-lake sf="1":
+    WAREHOUSE_MODE=ducklake {{python}} python packages/sqlmesh/seed_tpch.py {{sf}}
+
+plan-lake:
+    cd packages/sqlmesh && {{python}} sqlmesh --gateway lake plan
+
+apply-lake:
+    cd packages/sqlmesh && {{python}} sqlmesh --gateway lake plan --auto-apply --no-prompts
+
 # Полный пересбор с нуля (warehouse детерминирован: dbgen + sqlmesh); sf — как в seed.
 # ВНИМАНИЕ: перед reset остановите стек — Cube держит блокировку DuckDB
 # (scripts/stack.sh down), иначе apply упадёт с Conflicting lock.
@@ -32,8 +43,34 @@ test:
 # Stage 3: верификационный harness (golden-вопросы, rows/SQL-паритет, RBAC).
 # Требует запущенного Cube: `just cube-prod` — RBAC-тесты работают только
 # в прод-режиме; в dev (`just cube`) они пропускаются (guard в test_rbac.py).
+# CUBEJS_DUCKDB_QUERY_LOG включает ground truth для `just verify`.
 verify:
     HARNESS_STRICT=1 {{python}} pytest packages/harness -q
+
+# Stage 7 (шаг 6): verify в ducklake-режиме — Cube (WAREHOUSE_MODE=ducklake,
+# прод) + ducklake-стек (docker compose up -d --wait, seed-lake, apply-lake)
+verify-lake:
+    WAREHOUSE_MODE=ducklake HARNESS_STRICT=1 {{python}} pytest packages/harness -q
+
+# Stage 7 (шаг 9): bench в ducklake-режиме (числа file/ducklake не смешиваются —
+# docs/bench-protocol.md)
+bench-lake:
+    cd packages/harness && WAREHOUSE_MODE=ducklake {{python}} python -m harness.bench
+
+# Вариант A (Stage 7, шаг 7): serving в контейнерах (профиль serve: cube+evidence,
+# + ducklake-инфраструктура). Секреты — env_file .env; MCP/harness — с хоста
+# через published-порты 4000/15432 без изменений.
+serve-up:
+    docker compose --profile serve up -d --wait
+
+# Снять serving (куб+evidence), НЕ трогая ducklake-инфраструктуру
+serve-down:
+    docker compose rm -sf cube evidence
+
+# Снять лок Cube перед `just apply`/`reset` в file-режиме (аналог `stack.sh down`
+# для контейнерного куба): иначе sqlmesh упадёт «Conflicting lock is held in node»
+cube-stop:
+    docker compose stop cube
 
 # Протокол оценки запросов (docs/bench-protocol.md): latency 3 путей + файлы SQL + сводная.
 # Требует запущенного `just cube`.
@@ -72,6 +109,6 @@ token group="admin" region="":
     @{{python}} python scripts/make-cube-token.py --group {{group}} {{ if region != "" { "--region " + region } else { "" } }}
 
 # ВНИМАНИЕ: системный DuckDB CLI 2.0 — к файлам проекта ТОЛЬКО read-only.
-# Запись/чекпойнт версией 2.0 сделает файл нечитаемым для 1.4.4 (Cube, Evidence, sqlmesh).
+# Запись/чекпойнт версией 2.0 сделает файл нечитаемым для 1.5.5 (Cube, Evidence, sqlmesh).
 cli-readonly:
     duckdb -readonly {{duckdb_file}}

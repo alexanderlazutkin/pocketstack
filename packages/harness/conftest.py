@@ -72,9 +72,9 @@ def cube_up():
 
 @pytest.fixture(scope="session")
 def duckdb_con():
-    import duckdb
+    from harness.warehouse import warehouse_connect
 
-    con = duckdb.connect(str(WAREHOUSE), read_only=True)
+    con = warehouse_connect(REPO)
     yield con
     con.close()
 

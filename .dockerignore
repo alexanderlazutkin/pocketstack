@@ -1,0 +1,10 @@
+# Контекст сборки — только serving-пакеты и docker/ (вариант A, Stage 7)
+# Whitelist-стиль: сначала исключаем всё, затем возвращаем нужное.
+*
+!packages/cube/**
+!packages/evidence/**
+!docker/**
+packages/cube/node_modules/**
+packages/evidence/node_modules/**
+packages/evidence/.evidence/**
+packages/evidence/sources/cube/connection.yaml

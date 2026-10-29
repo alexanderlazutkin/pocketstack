@@ -1,0 +1,132 @@
+# pocketstack — DuckLake-инфраструктура (опция для тренировок; основной режим — файл).
+# Каталог (PostgreSQL) + хранилище parquet (MinIO) + инициализация бакета.
+# Serving-контейнеры (cube/evidence, вариант A) добавятся позже отдельным профилем.
+#
+#   docker compose up -d --wait   # поднять каталог + S3 (ждать healthchecks)
+#   docker compose down           # остановить (данные в volume'ах остаются)
+#   docker compose down -v        # снести вместе с данными
+#
+# Секреты — только из .env (см. .env.example); без .env compose откажется стартовать.
+# Порты публикуются ТОЛЬКО на 127.0.0.1 (как и весь стек pocketstack).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${DUCKLAKE_PG_USER:?задайте в .env — см. .env.example}
+      POSTGRES_PASSWORD: ${DUCKLAKE_PG_PASSWORD:?задайте в .env — см. .env.example}
+      POSTGRES_DB: ${DUCKLAKE_PG_DB:-ducklake}
+    ports:
+      - "127.0.0.1:${DUCKLAKE_PG_PORT:-15433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DUCKLAKE_PG_USER:-pocketstack} -d ${DUCKLAKE_PG_DB:-ducklake}"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  minio:
+    # elestio/minio:latest (2025-10-15) = ОФИЦИАЛЬНЫЙ бинарник minio RELEASE.2025-09-07T16-13-09Z
+    # + bundled mc (/usr/bin/mc). Версионных тегов у elestio нет → пин по digest.
+    # Почему не minio/minio: удалён с Docker Hub целиком (minio/minio#21647, даже старые
+    # теги 404); quay.io требует авторизацию; alpine/minio — самосбор «GOGET» без mc.
+    image: elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec minio server /data --console-address \":9001\""]
+    environment:
+      MINIO_ROOT_USER: ${DUCKLAKE_S3_ACCESS_KEY:?задайте в .env — см. .env.example}
+      MINIO_ROOT_PASSWORD: ${DUCKLAKE_S3_SECRET_KEY:?задайте в .env — см. .env.example}
+    ports:
+      - "127.0.0.1:${DUCKLAKE_S3_PORT:-9000}:9000"
+      - "127.0.0.1:${DUCKLAKE_S3_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  # One-shot: создать бакет (идемпотентно). mc — из того же образа elestio/minio.
+  # Позже здесь же — утилиты чистки (Stage 7, шаг 8).
+  minio-init:
+    image: elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY: ${DUCKLAKE_S3_ACCESS_KEY:?}
+      S3_SECRET_KEY: ${DUCKLAKE_S3_SECRET_KEY:?}
+      S3_BUCKET: ${DUCKLAKE_S3_BUCKET:-pocketstack}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        mc alias set local http://minio:9000 $$S3_ACCESS_KEY $$S3_SECRET_KEY &&
+        mc mb --ignore-existing local/$$S3_BUCKET &&
+        echo \"бакет $$S3_BUCKET готов\"
+
+# --- Вариант A: serving-слой (Stage 7, шаг 7) ---------------------------------
+#   docker compose --profile serve up -d --wait  # куб + evidence (+ ducklake-инфра)
+#   docker compose rm -sf cube evidence          # снять serving (инфра остаётся)
+#   docker compose stop cube                     # снять лок Cube (перед just apply
+#                                                #   в file-режиме — иначе Conflicting lock)
+# Секреты — env_file .env; порты — только 127.0.0.1. MCP/harness ходят с хоста
+# через published-порты (4000/15432) без изменений.
+  cube:
+    profiles: [serve]
+    build:
+      context: .
+      dockerfile: docker/cube/Dockerfile
+    env_file: .env
+    environment:
+      # dev (default, как stack.sh up) | prod: CUBEJS_DEV_MODE=false docker compose --profile serve up -d cube
+      CUBEJS_DEV_MODE: ${CUBEJS_DEV_MODE:-true}
+      CUBEJS_DB_TYPE: duckdb # на хосте — в packages/cube/.env (не в git); контейнеру — явно
+      CUBEJS_SCHEMA_PATH: model
+      WAREHOUSE_MODE: ${WAREHOUSE_MODE:-file}
+      DUCKLAKE_PG_HOST: postgres # внутри compose-сети; host-значения .env переопределены
+      DUCKLAKE_PG_PORT: "5432"
+      DUCKLAKE_S3_ENDPOINT: minio:9000
+    ports:
+      - "127.0.0.1:4000:4000"
+      - "127.0.0.1:15432:15432"
+    volumes:
+      - ./warehouse:/srv/warehouse # file-режим: витрина, Cube ATTACH READ_ONLY
+      - ./artifacts:/srv/artifacts # query-log = ground truth для harness
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:4000/cubejs-api/v1/meta || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  evidence:
+    profiles: [serve]
+    build:
+      context: .
+      dockerfile: docker/evidence/Dockerfile
+    env_file: .env
+    environment:
+      CUBESQL_HOST: cube # внутри сети — к SQL API куба, не localhost
+      CUBESQL_PORT: "15432"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      cube:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:3000 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:

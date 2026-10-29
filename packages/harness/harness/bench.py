@@ -22,7 +22,6 @@ import sys
 import time
 from pathlib import Path
 
-import duckdb
 import psycopg
 import requests
 
@@ -169,11 +168,15 @@ def write_run(detail, summary, run_dir: Path, meta: dict) -> None:
         "",
         f"_commit `{meta['commit']}`, N={meta['n_runs']} итераций на путь_",
         "",
-        ("REST — `/v1/load` c `renewQuery` (кэш Cube отключён); "
-        "SQL API — pg-wire `:15432`; REF — эталонный SQL к DuckDB."),
+        (
+            "REST — `/v1/load` c `renewQuery` (кэш Cube отключён); "
+            "SQL API — pg-wire `:15432`; REF — эталонный SQL к DuckDB."
+        ),
         "",
-        ("| Вопрос | rows | parity | REST p50 (min), мс | SQL API p50 (min), мс "
-        "| REF p50 (min), мс | SQL-хэш | файл | Evidence |"),
+        (
+            "| Вопрос | rows | parity | REST p50 (min), мс | SQL API p50 (min), мс "
+            "| REF p50 (min), мс | SQL-хэш | файл | Evidence |"
+        ),
         "|---|---|---|---|---|---|---|---|---|",
     ]
     import os
@@ -240,7 +243,9 @@ def main() -> int:
         password=required("CUBESQL_PASSWORD"),
         dbname="default",
     )
-    duckdb_con = duckdb.connect(str(repo / "warehouse" / "pocketstack.duckdb"), read_only=True)
+    from harness.warehouse import warehouse_connect
+
+    duckdb_con = warehouse_connect(repo)
 
     run_id = datetime.datetime.now().strftime("%Y-%m-%dT%H%M%S")
     run_dir = results_root / "runs" / run_id

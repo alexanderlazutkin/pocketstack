@@ -5,6 +5,38 @@ gateways:
       database: ../../warehouse/pocketstack.duckdb
       concurrent_tasks: 1
 
+  # DuckLake-режим (Stage 7, шаг 4): данные в lake (pg-каталог + MinIO),
+  # state sqlmesh — ОТДЕЛЬНЫЙ локальный файл (развязан с данными; смена sf —
+  # docs/plan.md § «Смена sf»: сброс state отдельным шагом).
+  # Запуск: `just apply-lake` (sqlmesh plan --gateway lake).
+  # Секреты — Jinja env_var из .env (в config.yaml кредов нет).
+  lake:
+    connection:
+      type: duckdb
+      concurrent_tasks: 1
+      catalogs:
+        # lake — каталог ПО УМОЛЧАНИЮ (первый entry): sqlmesh квалифицирует имена
+        # дефолтным каталогом, поэтому физика = lake.sqlmesh__marts.*, прод-view =
+        # lake.marts.*, raw_tpch резолвится сюда же
+        lake:
+          type: ducklake
+          path: "postgres:dbname={{ env_var('DUCKLAKE_PG_DB') }} user={{ env_var('DUCKLAKE_PG_USER') }} password={{ env_var('DUCKLAKE_PG_PASSWORD') }} host={{ env_var('DUCKLAKE_PG_HOST') }} port={{ env_var('DUCKLAKE_PG_PORT') }}"
+          data_path: "s3://{{ env_var('DUCKLAKE_S3_BUCKET') }}/"
+      extensions:
+        - ducklake
+        - httpfs
+        - postgres
+      connector_config:
+        s3_endpoint: "{{ env_var('DUCKLAKE_S3_ENDPOINT') }}"
+        s3_use_ssl: false
+        s3_url_style: "path"
+        s3_access_key_id: "{{ env_var('DUCKLAKE_S3_ACCESS_KEY') }}"
+        s3_secret_access_key: "{{ env_var('DUCKLAKE_S3_SECRET_KEY') }}"
+    state_connection:
+      type: duckdb
+      database: ../../warehouse/lake_state.duckdb
+      concurrent_tasks: 1
+
 default_gateway: local
 
 model_defaults:

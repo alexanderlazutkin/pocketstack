@@ -1,6 +1,6 @@
 # План настройки и разработки демо-проекта pocketstack
 
-Версия плана: 1.1 (2026-10-25). Обоснование выбора BI — `docs/bi-tools-comparison.md`.
+Версия плана: 1.2 (2026-10-28). Обоснование выбора BI — `docs/bi-tools-comparison.md`.
 Нюансы и грабли — `docs/gotchas.md`; протокол оценки запросов — `docs/bench-protocol.md`;
 установка Evidence с нуля — `docs/evidence-setup.md`; SQL-клиенты к Cube — `docs/cube-sql-clients.md`.
 
@@ -16,7 +16,7 @@
 |---|---|---|---|
 | Менеджер пакетов | uv | 0.13.5 (обновить с 0.11.24) | воркспейс, единый lock |
 | Python | CPython (uv-managed) | 3.13 (`.python-version`) | fallback 3.12 при отсутствии wheels |
-| Хранилище | DuckDB | **==1.4.4 в venv (python + node)** | системный CLI 2.0.0 не трогаем |
+| Хранилище | DuckDB | **==1.5.5: python-пин + node `@duckdb/node-api` 1.5.5** | системный CLI 2.0.0 не трогаем |
 | Генерация данных | `tpch` extension | core ext, `CALL dbgen(sf=N)` | детерминированный сид, sf параметризован |
 | Трансформации | sqlmesh | 0.236.4 (fallback dbt-core 1.12.6) | пин `duckdb<2` в sqlmesh |
 | Семантика | Cube | 1.8.13 | REST/GraphQL + SQL API (pg-wire :15432); MCP-пакета в npm нет (404) |
@@ -27,9 +27,9 @@
 ### Защитные правила
 
 - **Системный DuckDB CLI 2.0** к файлам проекта — только `duckdb -readonly warehouse/pocketstack.duckdb`
-  (таргет `just cli-readonly`). Запись/чекпойнт 2.0 поднимет версию формата → файл станет нечитаем для 1.4.4.
+  (таргет `just cli-readonly`). Запись/чекпойнт 2.0 поднимет версию формата → файл станет нечитаем для 1.5.5.
 - `warehouse/*.duckdb` не в git: полностью воспроизводим из `just seed` + `sqlmesh run` (дешёвый откат).
-- Версия DuckDB в venv — единая 1.4.4; любые повышения — только через Stage 6.
+- Версия DuckDB в venv — единая 1.5.5 (выравнена с node-драйвером 2026-10-28, см. Stage 6); повышения — только через Stage 6.
 
 ## 3. Архитектура
 
@@ -167,18 +167,86 @@ pocketstack/
     движком 1.4.4 («can only read versions between 64 and 67») → мигрировать можно
     только всем стеком одномоментно; python-часть в одиночку поднять нельзя
 - Следующий watch: ~2026-11 (или по release-notes cube duckdb-driver / sqlmesh)
+- **Update 2026-10-28 — python выровнен на 1.5.5 (prerequisite Stage 7/ducklake), пины 1.4.4 сняты**:
+  - Факт: `@cubejs-backend/duckdb-driver` 1.8.13 → `@duckdb/node-api 1.5.5-r.5` (движок
+    v1.5.5, замер `SELECT version()`) — стек уже был смешанным 1.4.4+1.5.5 и работал
+    только за счёт обратной совместимости формата файлов (1.5.5 читает v64–68)
+  - Матрица ducklake: python 1.4.4 создаёт каталог **v0.3**, node 1.5.5 требует **v1.0** —
+    несовместимо в обе стороны на любом типе каталога (файл и postgres); AUTOMATIC_MIGRATION
+    односторонняя и разрушает доступ старому клиенту → смешанный стек на ducklake невозможен
+  - Сделано: `duckdb==1.5.5` в обоих python-пакетах (+ build-system hatchling для
+    pocketstack-sqlmesh: setuptools flat-layout падал на `logs/`); выравненная пара
+    1.5.5↔1.5.5 на pg-каталоге полностью интероперабельна (чтение/чередование записи/
+    кросс-запись/READ_ONLY)
+  - Верификация: `just verify` — 88 passed / 1 skipped (prod-Cube, RBAC включён)
+  - Миграция на 2.0 по-прежнему ⏸: CLI 2.0 пишет v999, нечитаемо и для 1.5.5
 
-### Stage 7 — ducklake + MinIO (последняя)
-- ATTACH ducklake-каталога: сначала local FS (Parquet), опционально MinIO (docker)
-- Перенастройка sqlmesh/Cube/Evidence без изменения семантики
-- Параллельно: рост sf (10, …) и повторный прогон harness
+### Stage 7 — ducklake (pg-каталог + MinIO) + контейнеризация serving-слоя — 🚧 в работе с 2026-10-28
+
+Цель: опция развёртывания витрины как DuckLake (каталог PostgreSQL, parquet в MinIO)
+поверх выравненного стека 1.5.5; serving-слой (cube+evidence) — в контейнерах (вариант A).
+
+**Принятые решения (2026-10-28, реестр §9 №10–14):**
+- **Два режима**: файловый `warehouse/*.duckdb` — основной (демо); ducklake — опция
+  для тренировок. Переключатель окружением (`WAREHOUSE_MODE=file|ducklake`);
+  бенчи «до/после» — в двух режимах отдельно, цифры не смешиваются.
+- **Time-travel снапшоты** ducklake храним (анализ через `ducklake_snapshots()`),
+  но обязателен механизм чистки (шаг 8): снапшот-expiry + `mc rm` сирот.
+- **Evidence** — только через Cube SQL API (pg-wire); прямой `type: duckdb`-коннектор
+  к lake не подключаем (иначе 4-й клиент lake с собственными `SET s3_*`).
+- Каталог — PostgreSQL 17, данные — MinIO (docker compose). URL файлов единые
+  `s3://bucket/...`; endpoint/creds — per-session (хост `localhost:9000`,
+  контейнеры `minio:9000` — два значения одной переменной, не смешивать).
+- Cube аттачит lake **READ_ONLY** — защита от случайной AUTOMATIC_MIGRATION каталога.
+
+Prerequisite выполнен (2026-10-28): матрица совместимости + бамп duckdb 1.5.5 —
+см. Stage 6 Update 2026-10-28; каталог v1.0, все движки на одной версии.
+
+**Дорожная карта:**
+
+| # | Шаг | Критерий приёмки | Статус |
+|---|---|---|---|
+| 1 | compose-скелет: postgres+minio+mc-init (healthchecks, порты 127.0.0.1, секреты из .env) | `docker compose up -d --wait` → pg ready + бакет существует | ✅ 2026-10-28 (minio = `elestio/minio` по digest: официальный бинарник + mc; `minio/minio` удалён с Hub) |
+| 2 | S3-пробы обоих движков: `SET s3_url_style='path'`, `s3_use_ssl=false`, endpoint хост/контейнер | python и node пишут/читают parquet в MinIO через pg-каталог; кросс-доступ | ✅ 2026-10-28 (интероп py↔node через S3: 6→7 строк, снапшоты 4→5; чистка drop+mc rm проверена) |
+| 3 | seed → lake: dbgen локально → CTAS в `lake.raw_tpch` (транзит через диск); маркер sf; тесты counts sf-aware (целые sf — линейно, дробные — skip) | counts = sf-эталон; parquet в бакете; тесты зелёные при любом целом sf | ✅ 2026-10-28 (`WAREHOUSE_MODE`; маркер `pocketstack_meta` в обоих режимах; тесты sf-aware: 136 passed на sf=10; lineitem/fact_sales — допуск 0.1%, счётчик dbgen нелинеен; lake-тест `RUN_LAKE_TESTS=1` идемпотентен) |
+| 4 | sqlmesh на lake: `attach:` в gateway-конфиге, модели в схему lake, state — локальный .duckdb | `plan --auto-apply` строит звезду; повторный ран идемпотентен | ✅ 2026-10-28 (gateway `lake`: `catalogs.lake` type ducklake + env_var-секреты; state в `warehouse/lake_state.duckdb`; lake — каталог по умолчанию: физика `sqlmesh__marts`, прод-view `marts`; тест `RUN_LAKE_TESTS=1` — сборка + идемпотентность; file-режим не задет: «No changes to plan») |
+| 5 | Cube на lake: per-connection ATTACH + SET s3_* + READ_ONLY (обёртка TimingDuckDBDriver) | `just cube` отвечает; стресс 20+ конкурентных запросов без плавающих ошибок пула | ✅ 2026-10-28 (`configureConnection`-override: LOAD/INSTALL расширений → SET s3_* → ATTACH **AS pocketstack** (логическое имя каталога из модели) READ_ONLY → USE; стресс `scripts/cube_stress.py` 40×40: все 200, data идентичны; orders_count из lake = 1 500 000 (sf=1 канон); file-регресс: 15 000 000 (sf=10)) |
+| 6 | harness: ground-truth путь через attach (env-параметризация) | `just verify` 88/88 в ducklake-режиме | ✅ 2026-10-28 (`harness/warehouse.py`: file — read-only файл, ducklake — ATTACH READ_ONLY **AS pocketstack** (логическое имя, как в модели Cube и референс-SQL) + USE; коннект-фабрика общая для conftest-фикстуры и bench; `just verify-lake` / `bench-lake`; приёмка: verify-lake **88/1**, регресс file verify **88/1**) |
+| 7 | Вариант A: cube+evidence контейнеры (node:20-bookworm, расширения в образе, рендер connection.yaml в entrypoint) | стек целиком через compose; MCP на хосте без изменений | ✅ 2026-10-28 (`docker/cube` node:**24**-bookworm (cubejs-server требует Node≥22; пин 20.19 — только Evidence), `docker/evidence` node:20.19.0 + entrypoint-рендер connection.yaml; профиль `serve`; bind: warehouse + artifacts (query-log ground truth); секреты env_file; `just serve-up/serve-down/cube-stop`; приёмка: dev 70/19 (RBAC-гвард), **прод 88/1**, Evidence 200, ducklake-контейнер 1 500 000) |
+| 7.1 | Зачистка хостового serving-окружения после перехода на контейнеры: Node 20 в ~/.local/opt (нужен был только Evidence), хостовые запуски cube/evidence (stack.sh host-ветка), лаунчеры /tmp; в Desktop-VM — только pocketstack-мусор (старые сборки), чужие образы (ragflow и пр.) НЕ трогаем; на хосте остаются pipeline (uv), harness, MCP | доки/скрипты не требуют хостового serving; disk freed | ⬜ (согласовать список с пользователем) |
+| 8 | rebuild + чистка: сброс state sqlmesh, DROP/пересоздание lake-данных, снапшот-expiry (`--prune-old`), `mc rm` сирот; обе ветки WAREHOUSE_MODE по процедуре «Смена sf» | повторный rebuild не раздувает бакет; смена sf в ducklake без даунтайма куба | ⬜ |
+| 8.1 | bench + доки: два режима в bench-protocol (`just bench` / `bench-lake`), user-guide §ducklake (serve-up, смена режима, sf-процедура), финальные статусы Stage 7 | цифры зафиксированы в обоих режимах, доки сходятся с реальностью | ⬜ |
+| 9 | **Review проекта и документации**: ревизия всего changeset Stage 7 (бамп 1.5.5 + ducklake + контейнеры) как целого — код/тесты/конфиги; сверка каждой доки с реальностью (README быстрый старт с compose, user-guide, gotchas, bench-protocol, cube-rbac: прод в контейнере); судьба `scripts/stack.sh` после контейнеризации serving (host-ветка up/down устарела → pipeline-only или deprecate); мёртвые ссылки/упоминания | каждая команда из доков воспроизводима end-to-end; ревью-чеклист закрыт; workspace чистый (всё закоммичено) | ⬜ |
+| 9.1 | **Аудит отклонений от оригинальных релизов компонентов**: для каждого стороннего компонента (Cube backend + @cubejs-backend/duckdb-driver, sqlmesh, duckdb + расширения tpch/ducklake/httpfs, Evidence, postgres, образ minio elestio, Node-образы) — сверка с апстримом: есть ли патчи/правки кода/форки/vendored-изменения. **Настройка (env/YAML/конфиги/compose) — НЕ правка, в реестр не входит.** Собственный код (обёртки cube.js, MCP-сервер, harness, модели sqlmesh/cube) — не «правки компонентов», перечисляется отдельно как собственный слой | реестр «компонент → пин → кодовые отклонения (ожидаемо: 0)» зафиксирован в доках; воспроизводимость подтверждает, что любые компоненты заменяемы на апстрим-релизы без патчей | ⬜ |
+| 10 | **Тестирование пользователем (UAT)**: сценарный прогон по user-guide — быстрый старт с нуля (compose), file-демо (verify/bench, Evidence), ducklake-тренировка (seed-lake→apply-lake→verify-lake), смена sf (rebuild), RBAC-демо (прод-контейнер), MCP-агент (сценарии docs/cube-mcp.md) | все сценарии пройдены пользователем; замечания закрыты или заведены как fast-follow (реестр §9) | ⬜ |
+
+**Смена sf (процедура, оба режима):**
+- Инвариант: `seed(sf)` меняет только raw-данные; sqlmesh строит витрину по **state** (хэши
+  моделей, не данные) — без сброса state план пуст, marts остаются старыми. Смена sf =
+  reseed + сброс state + полный ребилд + **перематериализация Evidence sources** (кэш
+  материализован со старым sf) + `just verify`/bench (сравнение только внутри sf).
+- file-режим: `stack.sh rebuild SF` — down (lock) → rename-бэкап (data+state в одном
+  файле — сбрасываются вместе) → seed → apply → up → sources; сбой → авто-восстановление.
+- ducklake-режим (шаги 3–8): куб НЕ останавливаем (снапшот-изоляция каталога, zero-downtime
+  swap); dbgen во временный локальный файл → CTAS в `lake.raw_tpch` одной транзакцией;
+  state sqlmesh — локальный .duckdb, сбрасывается **отдельным явным шагом** (развязано
+  с данными); сбой на середине откатывается транзакцией каталога (старый снапшот жив);
+  старый sf остаётся в time-travel снапшотах (анализ sf=1↔sf=10) → повторные смены растят
+  MinIO, prune — флагом rebuild (`--prune-old`, шаг 8).
+- Маркер sf: rebuild записывает текущий sf (артефакт + мета в каталоге); тесты counts
+  читают его: целые sf → линейные ожидания (region=5/nation=25 — константы), дробные →
+  skip. Устраняет текущие 11 красных тестов при sf=10.
+
+Параллельно (из исходного плана): рост sf (10, …) + повторный прогон harness.
 
 ## 6. Риски
 
 | Риск | Митигция |
 |---|---|
 | Официальный Cube MCP-пакет не найден в npm (404 на `@cubejs-backend/mcp`) | **Реализовался** (Stage 3): fallback REST/SQL API принят; harness от MCP не зависит |
-| Смешение версий DuckDB (системный CLI 2.0 vs venv 1.4.4) | guard `cli-readonly`, всё воспроизводимо скриптами |
+| Смешение версий DuckDB (системный CLI 2.0 vs venv 1.5.5) | guard `cli-readonly`, всё воспроизводимо скриптами |
+| Версии каталога ducklake расходятся между движками (0.3 у 1.4.4 vs 1.0 у 1.5.x) | **Реализовался** (2026-10-28, матрица): единый пин 1.5.5 + тест-пин + READ_ONLY attach (Stage 6 update, `docs/gotchas.md`) |
+| S3-hop искажает сравнение latency (файл vs ducklake) | два режима в bench-protocol (шаг 9), цифры не смешиваются |
 | Evidence 40.x — крупный скачок; bundled DuckDB неизвестен | проверка при Stage 4 (модель читает marts через `type: duckdb` только для отладки) |
 | pg-wire SQL API Cube — подмножество SQL | сложную логику держим в sqlmesh/Cube, BI только фильтрует/агрегирует |
 
@@ -208,6 +276,8 @@ pocketstack/
 | 13 | 2026-10-26 | Security: секреты вынесены в `.env` (шаблон `.env.example`), фолбэки-креды удалены из cube.js/harness/connection.yaml; Evidence-connection.yaml рендерится из .env (legacy не интерполирует `${VAR}`); единые имена `CUBESQL_USER/CUBESQL_PASSWORD`; .env и connection.yaml — вне git | security |
 | 14 | 2026-10-26 | Stage 5: собственный MCP-сервер `packages/mcp` (FastMCP/mcp SDK v1, stdio) вокруг Cube REST + SQL API — официального пакета нет; tools meta/load/sql/sql_api; e2e-тест настоящим stdio-клиентом; фикс сборки pocketstack-harness (hatchling, пакет `harness` не устанавливался) | Stage 5 |
 | 15 | 2026-10-27 | RBAC в Cube OSS до Ducklake (Stage 7): `access_policy` (member_level + row_level) на view `sales`/кубы + `contextToGroups` из JWT-claims + per-role `checkSqlAuth` SQL API; демо «admin всё / user 3 меры и свой регион» на REST+SQL API+MCP; стек переведён в прод-режим (dev mode отключает авторизацию; `pgSqlPort`, `cacheAndQueueDriver: 'memory'`); токены `scripts/make-cube-token.py`, admin-JWT автоминтом в harness/MCP; TDD-матрица `test_rbac.py` 19 тестов (verify 88/88) | RBAC (docs/cube-rbac.md) |
+| 16 | 2026-10-28 | Матрица совместимости ducklake: каталог v0.3 (python 1.4.4) vs v1.0 (node 1.5.5) — несовместимы в обе стороны на любом типе каталога; AUTOMATIC_MIGRATION одностороняя/разрушающая → бамп `duckdb==1.5.5` в обоих python-пакетах (выравнено с `@duckdb/node-api` 1.5.5 движка Cube); фикс сборки pocketstack-sqlmesh (hatchling: setuptools flat-layout падал на `logs/`); verify 88/88 на выравненном стеке | Stage 6 update / Stage 7, `docs/gotchas.md` |
+| 17 | 2026-10-28 | Старт Stage 7: `docker-compose.yml` — каталог postgres:17 + MinIO + mc-init бакета (healthchecks, порты только 127.0.0.1, секреты из .env с `:?`-гардами); зафиксированы решения и дорожная карта 9 шагов | Stage 7 |
 
 ## 9. Реестр вопросов: статус и дата решения
 
@@ -222,3 +292,8 @@ pocketstack/
 | 7 | PoP января: сдвиг месяца на границе года | ✅ решён | 2026-10-26 | куб `sales_mov`, эталон q13 (см. §8 п.9) |
 | 8 | Security: секреты в коде → `.env` (`.env.example`), best practices | ✅ решён | 2026-10-26 | cube.js/harness/connection.yaml; README «Безопасность»; см. §8 п.13 |
 | 9 | MCP для cube.dev: Enterprise/Cube Cloud недоступны для демо → свой тонкий сервер | ✅ решён | 2026-10-26 | `packages/mcp`, `docs/cube-mcp.md`; см. §8 п.14 |
+| 10 | Контейнеризация: какие компоненты переносим в docker compose | ✅ решён | 2026-10-28 | **Вариант A**: только serving (cube+evidence) в контейнерах; pipeline (seed/sqlmesh), harness, MCP (stdio) — на хосте; bind-mount `./warehouse` сохраняет совместимость с хостовыми инструментами; порты публикуются на 127.0.0.1 (закрывает 0.0.0.0-дыру Cube dev) |
+| 11 | DuckLake: один режим хранения или два | ✅ решён | 2026-10-28 | Два: файловый — основной (демо), ducklake — опция для тренировок; переключатель `WAREHOUSE_MODE=file\|ducklake` |
+| 12 | Time-travel снапшоты ducklake: хранить или гасить | ✅ решён | 2026-10-28 | Храним (анализ через `ducklake_snapshots()`) + механизм чистки: снапшот-expiry и `mc rm` сирот (Stage 7, шаг 8) |
+| 13 | Evidence в ducklake-режиме: через Cube SQL API или напрямую к lake | ✅ решён | 2026-10-28 | Только через Cube SQL API (pg-wire); прямой `type: duckdb`-коннектор к lake не подключаем |
+| 14 | Тип каталога и объектного хранилища ducklake | ✅ решён | 2026-10-28 | PostgreSQL 17 (каталог) + MinIO (S3, parquet); поднимается `docker compose up -d --wait` |
