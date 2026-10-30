@@ -120,9 +120,10 @@ just verify-lake                       # сверка в lake-режиме (RBAC
 **ducklake → file** (данные file уже есть — строились §3; иначе сначала `just rebuild`):
 
 ```bash
-CUBEJS_DEV_MODE=false just serve-up    # куб без WAREHOUSE_MODE → file (пересоздастся)
+just serve-up    # куб без WAREHOUSE_MODE → file (пересоздастся; dev — Playground :4000)
 docker compose exec evidence npm run sources
-just verify
+just verify      # в dev — без RBAC-матрицы; полный 88/88 — куб в проде:
+                 #  CUBEJS_DEV_MODE=false just serve-up, затем just verify
 ```
 
 Текущий режим куба: `docker compose exec cube printenv WAREHOUSE_MODE`
