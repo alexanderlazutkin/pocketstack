@@ -158,10 +158,24 @@ docker compose logs cube evidence   # логи серверов (или -f дл�
 | Что остановить | Команда | Комментарий |
 |---|---|---|
 | Только serving (куб+evidence) | `just serve-down` | Освобождает лок `warehouse/*.duckdb` — можно `just apply`/`seed`. Infra-контейнеры (pg, minio) продолжат работать |
-| **Стек DuckDB (file) полностью** | `just serve-down` + `docker compose stop postgres minio` | Файл-витрина в `warehouse/` — данные на месте; pg/minio поднимаются serve-up'ом даже в file-режиме, потому их и останавливаем |
-| **Стек DuckLake полностью** | `docker compose --profile serve stop` | Остановит и serving, и инфраструктуру (pg-каталог + MinIO); данные остаются в volumes. Обратно — `just serve-up` |
+| **Стек DuckDB (file) полностью** | `just serve-down && just infra-down` | Первая — serving, вторая — pg/minio (идемпотентны: не запущено — тихо выходят). Файл-витрина в `warehouse/` — данные на месте; pg/minio поднимаются serve-up'ом даже в file-режиме, потому их и останавливаем |
+| **Стек DuckLake полностью** | `docker compose --profile serve stop` (или `just serve-down && just infra-down`) | Остановит и serving, и инфраструктуру (pg-каталог + MinIO); данные остаются в volumes. Обратно — `just serve-up` |
 | Снести контейнеры (данные lake сохранить) | `docker compose --profile serve down` | Контейнеры удалятся, volumes (`pgdata`, `miniodata`) останутся |
 | Снести всё, состояние «с нуля» | `docker compose --profile serve down -v` и `rm warehouse/*.duckdb*` | Удаляет volumes lake (каталог+бакет) и файлы file-режима; `.env` остаётся → старт по §3/§4 |
+
+### Автостарт после перезагрузки ОС
+
+Стек поднимается **сам** после ребута: системный docker-демон
+(`docker.service`) включён при загрузке ОС, а у всех сервисов compose стоит
+`restart: unless-stopped` — демон поднимает их обратно.
+
+- Остановить так, чтобы после перезагрузки стек **не поднялся**:
+  `docker compose --profile serve stop` (или `just serve-down && just infra-down`) —
+  политика `unless-stopped` запоминает ручную остановку; контейнеры останутся
+  лежать и после ребута (вернуть — `just serve-up`).
+- Отключить автостарт docker-демона целиком:
+  `sudo systemctl disable docker.service docker.socket` — влияет на весь Docker
+  в системе, не только на pocketstack.
 
 ## 8. Разблокировка DuckDB (Conflicting lock)
 

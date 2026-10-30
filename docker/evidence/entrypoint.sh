@@ -23,8 +23,8 @@ chmod 600 sources/cube/connection.yaml
 # duckdb_local — ХОСТОВОЙ debug-коннектор (прямое чтение файла витрины,
 # docs/evidence-setup.md). В контейнере его нет (пути хоста + дизайн Stage 7:
 # Evidence читает ТОЛЬКО через Cube SQL API), а его connection.yaml с путями
-# хоста роняет `npm run sources`. Запросов/страниц у источника нет — просто
-# выключаем в рантайме.
-rm -f sources/duckdb_local/connection.yaml
+# хоста роняет `npm run sources`. Удаляем каталог целиком: пустой каталог без
+# connection.yaml Evidence сканирует и шумит ENOENT-варнингом.
+rm -rf sources/duckdb_local
 
 exec "$@"

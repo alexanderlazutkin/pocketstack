@@ -109,12 +109,22 @@ bench-lake:
 # Вариант A (Stage 7, шаг 7): serving в контейнерах (профиль serve: cube+evidence,
 # + ducklake-инфраструктура). Секреты — env_file .env; MCP/harness — с хоста
 # через published-порты 4000/15432 без изменений.
+# Sources материализуем после старта: данные живут в слое контейнера и
+# теряются при его пересоздании (как в rebuild, строка выше).
 serve-up:
     docker compose --profile serve up -d --wait
+    docker compose exec evidence npm run sources
 
 # Снять serving (куб+evidence), НЕ трогая ducklake-инфраструктуру
 serve-down:
     docker compose rm -sf cube evidence
+
+# Остановить ducklake-инфраструктуру (pg-каталог + MinIO), НЕ трогая serving.
+# Идемпотентно: если контейнеров нет — тихо выйдет без ошибки.
+# Полная остановка стека одной парой just-команд:
+# just serve-down && just infra-down
+infra-down:
+    @docker compose rm -sf postgres minio
 
 # Снять лок Cube перед `just apply`/`reset` в file-режиме: контейнерный куб
 # держит блокировку DuckDB, иначе sqlmesh упадёт «Conflicting lock is held in node»
@@ -149,8 +159,10 @@ cube-prod:
 # docker/evidence/Dockerfile; системный 24.x ломает sveltekit/vite SSR —
 # docs/gotchas.md «Установка/версии»). connection.yaml рендерится в entrypoint.
 # Поднимает и cube (depends_on), + ducklake-инфраструктуру.
+# + материализация sources (см. serve-up).
 evidence:
     docker compose --profile serve up -d --wait evidence
+    docker compose exec evidence npm run sources
 
 # RBAC (docs/cube-rbac.md): JWT для ручных проверок REST под ролью.
 # Стек ПО УМОЛЧАНИЮ работает под admin — токен user нужен только для сценария B.

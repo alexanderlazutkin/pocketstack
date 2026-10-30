@@ -50,7 +50,7 @@
 - **Serving (контейнеры)**: Cube (REST/GraphQL :4000 + SQL API pg-wire :15432) и
   Evidence (:3000) — профиль `serve` в `docker compose`; на хосте Node не нужен
   (пины Node 24/20.19 зашиты в образы `docker/`).
-- **Семантика**: Cube — view `sales`, куб `sales_mov` (YoY/PoP-отклонения), KPI-measures;
+- **Семантика**: Cube https://github.com/cube-js/cube — view `sales`, куб `sales_mov` (YoY/PoP-отклонения), KPI-measures;
   каждый куб/член описан по-русски (`title`/`description` — AI-context).
 - **BI**: Evidence — 6 страниц: выручка, отклонения, клиенты, доставка,
   верификация (13 golden-вопросов на одной странице); читает данные только через Cube SQL API.
@@ -139,8 +139,12 @@ Serving и lake-инфраструктура — `docker compose` (профил�
 ```bash
 just serve-up      # поднять cube+evidence (+ ducklake-инфраструктуру, если не поднята)
 just serve-down    # снять только serving (куб+evidence); инфраструктура работает
-docker compose --profile serve stop   # остановить всё (данные в volumes остаются)
+just infra-down    # снять инфраструктуру (pg-каталог + MinIO); идемпотентно
+just serve-down && just infra-down  # остановка стека полностью
+docker compose --profile serve stop   # остановить всё = just serve-down && just infra-down
 docker compose --profile serve down -v # снести с данными lake (к «с нуля»)
+# Стек автостартует после перезагрузки ОС (docker.service + restart: unless-stopped);
+# «stop» это учитывает — после него ребут стек не поднимет (подробнее — user-guide §7)
 just cube-stop     # снять лок куба перед just apply/reset в file-режиме
 just rebuild SF    # полный пересбор file-режима (транзакционно)
 just rebuild-lake SF  # полный пересбор ducklake-режима (без остановки куба)
