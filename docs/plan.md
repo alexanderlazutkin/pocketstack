@@ -2,7 +2,8 @@
 
 Версия плана: 1.2 (2026-10-28). Обоснование выбора BI — `docs/bi-tools-comparison.md`.
 Нюансы и грабли — `docs/gotchas.md`; протокол оценки запросов — `docs/bench-protocol.md`;
-установка Evidence с нуля — `docs/evidence-setup.md`; SQL-клиенты к Cube — `docs/cube-sql-clients.md`.
+установка Evidence с нуля — `docs/evidence-setup.md`; SQL-клиенты к Cube — `docs/cube-sql-clients.md`;
+миграция SSAS MD (Adventure Works) → Cube — `docs/ssasmd-cube-migration.md`.
 
 ## 1. Цели и приоритеты
 
