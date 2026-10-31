@@ -136,6 +136,13 @@ cube-stop:
 bench:
     cd packages/harness && {{ python }} python -m harness.bench
 
+# №16 (docs/bench-native-tpch.md): нативный TPC-H Q1-Q22 из tpch_queries() —
+# чистый базлайн движка file vs ducklake, без семантического слоя. Данные
+# изолированы от демо-витрины (dbgen-файл + схема lake tpch_native); нужна
+# ducklake-инфраструктура: docker compose up -d --wait. Результат: results/native/.
+bench-native sf="1":
+    cd packages/harness && {{ python }} python -m harness.tpch_native {{ sf }}
+
 # Stage 2: cube-сервер (REST/GraphQL :4000 + SQL API :15432) в DEV-режиме
 # (по умолчанию, packages/cube/.env: CUBEJS_DEV_MODE=true): playground
 # http://localhost:4000 + hot-reload модели. Токены не проверяются; запрос

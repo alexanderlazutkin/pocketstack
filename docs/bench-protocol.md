@@ -1,7 +1,8 @@
 # Протокол оценки запросов pocketstack
 
-Версия: 1.1 (2026-10-29 — два режима: file | ducklake, Stage 7/8.1).
+Версия: 1.2 (2026-10-31 — §7: нативный TPC-H базлайн, план №16).
 Реализация: `packages/harness/harness/bench.py`, запуск `just bench` / `just bench-lake`.
+Нативный базлайн движка (без семантического слоя) — `docs/bench-native-tpch.md`.
 
 ## 1. Назначение
 
@@ -87,3 +88,10 @@ REF ~170 — см. ранние строки `results/index.md`.)
   latency теряет смысл (хэши/commit в шапке позволяют проверить).
 - Сравнение только внутри: режим (file|ducklake) × sf. Рост sf (Stage 7) и смена
   режима — новые ряды в index.md.
+
+## 7. Нативный TPC-H базлайн (план №16)
+
+`just bench-native [sf]` — 22 запроса `tpch_queries()` напрямую к dbgen-данным
+(без Cube): file vs ducklake одной таблицей + валидация `tpch_answers()`.
+Данные изолированы от витрины (dbgen-файл + lake-схема `tpch_native`), лог —
+`results/native/`. Протокол и интерпретация: **docs/bench-native-tpch.md**.

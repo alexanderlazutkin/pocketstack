@@ -75,6 +75,7 @@ just serve-up        # куб в dev — Playground :4000 (по умолчани
 just verify          # тесты живого стека: паритет 3 путей + ground truth
                       # (RBAC-матрица — только в проде: CUBEJS_DEV_MODE=false just serve-up → 88/88)
 just bench           # 13 вопросов, latency 3 путей
+just bench-native 1  # №16: нативный TPC-H Q1-Q22, file vs ducklake (без куба)
 ```
 
 ### Режим DuckLake (lakehouse) — опция
@@ -127,6 +128,7 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 | `docs/upstream-components.md` | реестр сторонних компонентов: пины + кодовые отклонения (аудит, ожидаемо 0) |
 | `docs/bi-tools-comparison.md` | сравнение BI-инструментов (исследовательский снимок, выбор Evidence) |
 | `docs/bench-protocol.md` | протокол оценки запросов (два режима) |
+| `docs/bench-native-tpch.md` | нативный TPC-H базлайн Q1–Q22: file vs ducklake (№16) |
 | `docs/gotchas.md` | нюансы и грабли: симптом → причина → решение |
 | `docs/ssasmd-cube-migration.md` | **AW: SSAS Multidimensional → Cube** — миграция куба Adventure Works (12 KPI, унарные операторы, M2M), фазы Ф0–Ф10 |
 
