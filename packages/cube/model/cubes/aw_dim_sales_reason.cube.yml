@@ -1,0 +1,37 @@
+# Причины покупок (DimSalesReason). Измерение на стороне моста M2M (Ф7).
+cubes:
+  - name: aw_dim_sales_reason
+    title: Причина покупки
+    description: |
+      Измерение причин покупки (DimSalesReason), участвует в связи many-to-many
+      «заказ ⇄ причина» через FactInternetSalesReason (М2М, Ф7). Grain: причина.
+      15 причин трёх типов (Price, Quality, Service…). Меры фактов в разрезе
+      причин — только через aw_sales_reason (аллокация, «не SSAS-эквивалент»).
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimSalesReason"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: sales_reasons
+        title: Причины покупок
+        levels: [sales_reason_type, sales_reason_name]
+
+    dimensions:
+      - name: sales_reason_key
+        title: Ключ причины
+        sql: '{CUBE}."SalesReasonKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ причины. Join-ключ моста FactInternetSalesReason.
+      - name: sales_reason_name
+        title: Причина
+        sql: '{CUBE}."SalesReasonName"'
+        type: string
+        description: Название причины (On Promotion, Quality, Price…). Уровень иерархии «Причины покупок».
+      - name: sales_reason_type
+        title: Тип причины
+        sql: '{CUBE}."SalesReasonReasonType"'
+        type: string
+        description: Категория причины (Price, Promotion, Quality, Service, Other). Уровень иерархии «Причины покупок».

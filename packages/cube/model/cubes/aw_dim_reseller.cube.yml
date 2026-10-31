@@ -1,0 +1,144 @@
+# Дилеры (DimReseller) + география (денормализована из DimGeography).
+# 4 иерархии как в SSAS Reseller.dim: Type, Bank, Order Frequency, Order Month.
+cubes:
+  - name: aw_dim_reseller
+    title: Дилер
+    description: |
+      Измерение оптовых дилеров AW (DimReseller + география по GeographyKey).
+      Grain: дилер. 701 дилер: велосипедные магазины, склады, сети.
+      Денежные атрибуты (AnnualSales, AnnualRevenue, MinPaymentAmount) — USD.
+    sql: |
+      SELECT
+        r.*,
+        g."City" AS city,
+        g."StateProvinceName" AS state_province,
+        g."EnglishCountryRegionName" AS country
+      FROM aw_dw2019_ru.dbo."DimReseller" r
+      JOIN aw_dw2019_ru.dbo."DimGeography" g
+        ON g."GeographyKey" = r."GeographyKey"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: reseller_type
+        title: Типы дилеров
+        levels: [business_type, reseller_name]
+      - name: reseller_bank
+        title: Банки дилеров
+        levels: [bank_name, reseller_name]
+      - name: reseller_order_frequency
+        title: Частота заказов
+        levels: [order_frequency, reseller_name]
+      - name: reseller_order_month
+        title: Месяц заказа
+        levels: [order_month, reseller_name]
+
+    dimensions:
+      - name: reseller_key
+        title: Ключ дилера
+        sql: '{CUBE}."ResellerKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ дилера. Join-ключ FactResellerSales.ResellerKey.
+      - name: reseller_name
+        title: Дилер
+        sql: '{CUBE}."ResellerName"'
+        type: string
+        description: Название дилера. Уровень всех 4 иерархий.
+      - name: reseller_alternate_key
+        title: Натуральный ключ дилера
+        sql: '{CUBE}."ResellerAlternateKey"'
+        type: string
+        description: Натуральный идентификатор (AW00000001).
+      - name: business_type
+        title: Бизнес-тип
+        sql: '{CUBE}."BusinessType"'
+        type: string
+        description: Тип бизнеса (Value Added Reseller, Warehouse, Specialty Bike Shop). Уровень иерархии «Типы дилеров».
+      - name: bank_name
+        title: Банк
+        sql: '{CUBE}."BankName"'
+        type: string
+        description: Банк обслуживания дилера. Уровень иерархии «Банки дилеров».
+      - name: order_frequency
+        title: Частота заказов
+        sql: '{CUBE}."OrderFrequency"'
+        type: string
+        description: Частота заказов (Annual, Bi-Annual, Monthly, Quarterly). Уровень иерархии «Частота заказов».
+      - name: order_month
+        title: Месяц заказа
+        sql: '{CUBE}."OrderMonth"'
+        type: string
+        description: Предпочитаемый месяц заказа (January…). Уровень иерархии «Месяц заказа».
+      - name: number_employees
+        title: Сотрудников
+        sql: '{CUBE}."NumberEmployees"'
+        type: number
+        description: Численность сотрудников дилера.
+      - name: annual_sales
+        title: Годовые продажи дилера
+        sql: '{CUBE}."AnnualSales"'
+        type: number
+        description: Оборот дилера, USD (сама по себе — атрибут, не факт AW).
+      - name: annual_revenue
+        title: Годовая выручка дилера
+        sql: '{CUBE}."AnnualRevenue"'
+        type: number
+        description: Выручка дилера, USD.
+      - name: min_payment_amount
+        title: Мин. платёж
+        sql: '{CUBE}."MinPaymentAmount"'
+        type: number
+        description: Минимальная сумма платежа, USD.
+      - name: min_payment_type
+        title: Тип мин. платежа
+        sql: '{CUBE}."MinPaymentType"'
+        type: string
+        description: Способ платежа (Standard, Wire Transfer…).
+      - name: product_line
+        title: Линейка дилера
+        sql: '{CUBE}."ProductLine"'
+        type: string
+        description: Специализация дилера по линейкам.
+      - name: year_opened
+        title: Год открытия
+        sql: '{CUBE}."YearOpened"'
+        type: number
+        description: Год основания дилера.
+      - name: first_order_year
+        title: Год первого заказа
+        sql: '{CUBE}."FirstOrderYear"'
+        type: number
+        description: Год первого заказа у AW.
+      - name: last_order_year
+        title: Год последнего заказа
+        sql: '{CUBE}."LastOrderYear"'
+        type: number
+        description: Год последнего заказа у AW.
+      - name: phone
+        title: Телефон
+        sql: '{CUBE}."Phone"'
+        type: string
+        description: Телефон дилера.
+      - name: address_line1
+        title: Адрес (строка 1)
+        sql: '{CUBE}."AddressLine1"'
+        type: string
+        description: Адрес дилера.
+      - name: city
+        title: Город
+        sql: '{CUBE}.city'
+        type: string
+        description: Город дилера (из DimGeography).
+      - name: state_province
+        title: Штат/провинция
+        sql: '{CUBE}.state_province'
+        type: string
+        description: Штат/провинция дилера (из DimGeography).
+      - name: country
+        title: Страна
+        sql: '{CUBE}.country'
+        type: string
+        description: Страна дилера (из DimGeography).

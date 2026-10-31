@@ -100,6 +100,8 @@ services:
     volumes:
       - ./warehouse:/srv/warehouse # file-режим: витрина, Cube ATTACH READ_ONLY
       - ./artifacts:/srv/artifacts # query-log = ground truth для harness
+      # dev: правки моделей с хоста без rebuild образа (в образе — запечёнкая копия)
+      - ./packages/cube/model:/srv/packages/cube/model
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:4000/cubejs-api/v1/meta || exit 1"]
       interval: 5s

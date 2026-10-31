@@ -1,0 +1,71 @@
+# Промо-акции (DimPromotion). Иерархия Promotions: Category > Type > Promotion.
+cubes:
+  - name: aw_dim_promotion
+    title: Промо-акция
+    description: |
+      Измерение маркетинговых акций AW (DimPromotion). Grain: акция.
+      16 акций: скидки, распродажи, новинки (New Product), без акции (No Discount).
+      Скидка DiscountPct — доля (0.10 = 10%).
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimPromotion"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: promotions
+        title: Промо-акции
+        levels: [promotion_category, promotion_type, promotion_name]
+
+    dimensions:
+      - name: promotion_key
+        title: Ключ акции
+        sql: '{CUBE}."PromotionKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ акции. Join-ключ фактов продаж.
+      - name: promotion_alternate_key
+        title: Натуральный ключ акции
+        sql: '{CUBE}."PromotionAlternateKey"'
+        type: number
+        description: Натуральный номер акции.
+      - name: promotion_name
+        title: Акция
+        sql: '{CUBE}."EnglishPromotionName"'
+        type: string
+        description: Название акции (No Discount, Volume Discount 11-24…). Уровень иерархии «Промо-акции».
+      - name: promotion_category
+        title: Категория акции
+        sql: '{CUBE}."EnglishPromotionCategory"'
+        type: string
+        description: Категория (No Discount, Reseller, Customer). Уровень иерархии «Промо-акции».
+      - name: promotion_type
+        title: Тип акции
+        sql: '{CUBE}."EnglishPromotionType"'
+        type: string
+        description: Тип (Excess Inventory, New Product, Seasonal Discount, Volume Discount…). Уровень иерархии «Промо-акции».
+      - name: discount_pct
+        title: Скидка, %
+        sql: '{CUBE}."DiscountPct"'
+        type: number
+        description: Процент скидки акции, доля (0.10 = 10%).
+      - name: min_qty
+        title: Мин. объём
+        sql: '{CUBE}."MinQty"'
+        type: number
+        description: Минимальный объём для получения скидки, шт.
+      - name: max_qty
+        title: Макс. объём
+        sql: '{CUBE}."MaxQty"'
+        type: number
+        description: Максимальный объём скидки, шт.
+      - name: start_date
+        title: Начало акции
+        sql: '{CUBE}."StartDate"'
+        type: time
+        description: Дата начала действия акции.
+      - name: end_date
+        title: Конец акции
+        sql: '{CUBE}."EndDate"'
+        type: time
+        description: Дата окончания акции.

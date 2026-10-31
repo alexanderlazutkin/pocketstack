@@ -1,0 +1,138 @@
+# План счетов: flatten parent-child + УНАРНЫЕ ОПЕРАТОРЫ (эмуляция §4.1).
+# Closure (recursive CTE): каждая строка факта FactFinance размножается на всех
+# предков счёта с кумулятивным знаком sign = Π op(узлов пути), op: + → 1,
+# - → -1, ~ → 0 (узлы с ~ исключаются из родительских итогов, как в SSAS).
+# Мера amount_signed = SUM(sign·Amount) воспроизводит унарную свёртку на любом
+# уровне. INLINE recursive CTE (без DuckDB-view: источник read-only).
+cubes:
+  - name: aw_account_flat
+    title: План счетов (flatten + унарные операторы)
+    description: |
+      Финансовый факт, развёрнутый по иерархии плана счетов AW с эмуляцией
+      унарных операторов SSAS. Каждая строка FactFinance (счёт × организация ×
+      отдел × сценарий × день) размножается на себя и всех предков счёта;
+      кумулятивный знак = произведение операторов узлов пути
+      (+ → +1, − → −1, ~ → 0; «~»-ветки исключаются из итогов родителей).
+      Grain строки: (descendant_account_key, ancestor_key, факт-строка).
+      МЕРЫ: amount_signed — унарная свёртка (аналог SSAS [Amount] ByAccount +
+      unary operators); amount_leaf — листовая сумма без размножения
+      (FILTER depth=0). НЕ используйте amount_signed без среза по
+      ancestor/depth — строки размножены (двойной счёт); срез по
+      (ancestor_key, depth) даёт корректный итог уровня.
+      Отличия от SSAS: знак применяется и к листу (op самого счёта) — итоги
+      корней совпадают с SSAS, промежуточные узлы с '~'-детьми совпадают тоже;
+      ByAccount (знак по AccountType) НЕ применяется — только унарные операторы.
+    sql: |
+      WITH RECURSIVE acc AS (
+        SELECT
+          "AccountKey" AS k,
+          "ParentAccountKey" AS p,
+          CASE "Operator" WHEN '-' THEN -1.0 WHEN '~' THEN 0.0 ELSE 1.0 END AS op
+        FROM aw_dw2019_ru.dbo."DimAccount"
+      ), cl AS (
+        SELECT k AS descendant_key, k AS ancestor_key, 0 AS depth, 1.0 AS sign
+        FROM acc
+        UNION ALL
+        SELECT c.descendant_key, a.p, c.depth + 1, c.sign * a.op
+        FROM cl c
+        JOIN acc a ON a.k = c.ancestor_key
+        WHERE a.p IS NOT NULL AND c.sign * a.op <> 0
+      )
+      SELECT
+        f."FinanceKey" AS finance_key,
+        f."DateKey" AS date_key,
+        f."ScenarioKey" AS scenario_key,
+        f."OrganizationKey" AS organization_key,
+        f."DepartmentGroupKey" AS department_group_key,
+        cl.descendant_key AS descendant_account_key,
+        cl.ancestor_key,
+        cl.depth,
+        cl.sign,
+        f."Amount" AS amount,
+        cl.sign * f."Amount" AS signed_amount
+      FROM cl
+      JOIN aw_dw2019_ru.dbo."FactFinance" f ON f."AccountKey" = cl.descendant_key
+    joins:
+      - name: aw_dim_account
+        sql: '{CUBE}.ancestor_key = {aw_dim_account}."AccountKey"'
+        relationship: many_to_one
+      - name: aw_dim_scenario
+        sql: '{CUBE}.scenario_key = {aw_dim_scenario}."ScenarioKey"'
+        relationship: many_to_one
+      - name: aw_dim_date
+        sql: '{CUBE}.date_key = {aw_dim_date}."DateKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: amount_signed
+        title: Итог счёта (унарная свёртка)
+        sql: signed_amount
+        type: sum
+        format: currency
+        description: |
+          SUM(sign·Amount) по всем листам под узлом — унарная свёртка SSAS.
+          Срезайте по ancestor_key (или ancestor+depth) — это итог уровня.
+          Без среза по предку мера суммирует размноженные строки (двойной счёт).
+      - name: amount_leaf
+        title: Листовая сумма (без свёртки)
+        sql: 'CASE WHEN {CUBE}.depth = 0 THEN amount END'
+        type: sum
+        format: currency
+        description: |
+          Сумма Amount только на depth=0 (сам счёт, без размножения на
+          предков): SUM(CASE WHEN depth=0 THEN amount END) — фана нет.
+          Итог по всем листам = Σ FactFinance.
+      - name: leaf_count
+        title: Строк листов
+        sql: 'CASE WHEN {CUBE}.depth = 0 THEN finance_key END'
+        type: count
+        description: Число листовых строк факта под узлом (depth=0).
+
+    dimensions:
+      - name: finance_key
+        title: Ключ строки
+        sql: finance_key
+        type: number
+        primary_key: true
+        description: Суррогатный ключ строки FactFinance.
+      - name: ancestor_key
+        title: Счёт уровня (ключ)
+        sql: ancestor_key
+        type: number
+        primary_key: true
+        description: Ключ счёта-уровня, по которому идёт срез (join aw_dim_account — имена/типы).
+      - name: depth
+        title: Глубина от листа
+        sql: depth
+        type: number
+        description: 0 — сам счёт (лист факта), 1+ — уровни предков вверх.
+      - name: sign
+        title: Знак пути
+        sql: sign
+        type: number
+        description: Кумулятивный знак пути лист→предок (произведение унарных операторов; 0-пути исключены).
+      - name: descendant_account_key
+        title: Ключ листового счёта
+        sql: descendant_account_key
+        type: number
+        description: Счёт строки факта (лист). Для имени — join aw_dim_account по этому ключу недоступен из коробки, используйте aw_finance.
+      - name: scenario_key
+        title: Ключ сценария
+        sql: scenario_key
+        type: number
+        description: FK → aw_dim_scenario.
+      - name: organization_key
+        title: Ключ организации
+        sql: organization_key
+        type: number
+        description: Организация строки факта.
+      - name: department_group_key
+        title: Ключ отдела
+        sql: department_group_key
+        type: number
+        description: Отдел строки факта.
+      - name: date_key
+        title: Ключ даты
+        sql: date_key
+        type: number
+        description: Дата строки факта.

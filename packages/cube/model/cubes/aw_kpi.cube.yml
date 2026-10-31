@@ -1,0 +1,266 @@
+# KPI AW как МЕТРИКИ (аналог SSAS KPI-объектов, 12 шт из Adventure Works.cube).
+# Long-формат: строка = KPI (у Product Gross Profit Margin — по категории).
+# value/target/status в одной строке; status: 1 достигнут / 0 близко / -1 нет.
+# Финансовые KPI — счёт по поддереву с унарной свёрткой (как aw_account_flat),
+# сценарии Actual(1)/Budget(2); revenue-семейство — финансовые годы (FY, июль–
+# июнь): value = последний FY, target = prev FY × коэффициент SSAS.
+cubes:
+  - name: aw_kpi
+    title: KPI Adventure Works
+    description: |
+      12 KPI SSAS-куба AW (Adventure Works.cube, узлы <Kpi>) в табличном виде:
+      одна строка = KPI (продуктовая маржа — по категории товара). Колонки
+      value/target/status соответствуют KpiValue/KpiGoal/KpiStatus (status:
+      1 — цель достигнута, 0 — близко, −1 — не достигнута; пороги из MDX).
+      Финансовые: Net Income (счёт 47), Operating Profit (48), Operating
+      Expenses (58), Gross Margin (49), Return on Assets (47/2), Budget
+      Variance, Expense Ratio (58/выручка) — Actual vs Budget, сумма по
+      поддереву счёта с унарной свёрткой, весь период.
+      Revenue-семейство — по финансовым годам (июль–июнь): value = последний
+      FY данных, target = LY × 1.15 (Revenue) / 1.10 (Internet) / квота
+      (Channel) / 0.30 рост клиентов. ⚠ допущения: статусы revenue-семейства
+      пороги 1.0/0.9 (в MDX второй порог относительный), Financial Variance
+      порог «0» 0.05/0.10.
+    sql: |
+      WITH RECURSIVE acc AS (
+        SELECT "AccountKey" AS k, "ParentAccountKey" AS p,
+               CASE "Operator" WHEN '-' THEN -1.0 WHEN '~' THEN 0.0 ELSE 1.0 END AS op
+        FROM aw_dw2019_ru.dbo."DimAccount"
+      ), cl AS (
+        SELECT k AS descendant_key, k AS ancestor_key, 0 AS depth, 1.0 AS sign
+        FROM acc
+        UNION ALL
+        SELECT c.descendant_key, a.p, c.depth + 1, c.sign * a.op
+        FROM cl c JOIN acc a ON a.k = c.ancestor_key
+        WHERE a.p IS NOT NULL AND c.sign * a.op <> 0
+      ), fin_signed AS (
+        SELECT f."ScenarioKey" AS scenario_key, cl.ancestor_key,
+               SUM(cl.sign * f."Amount") AS amt
+        FROM cl JOIN aw_dw2019_ru.dbo."FactFinance" f ON f."AccountKey" = cl.descendant_key
+        GROUP BY 1, 2
+      ), sales_fy AS (
+        SELECT d."FiscalYear" AS fy,
+               SUM(CASE WHEN ch.channel = 'Internet' THEN amt END) AS internet_amt,
+               SUM(CASE WHEN ch.channel = 'Reseller' THEN amt END) AS reseller_amt,
+               SUM(amt) AS total_amt,
+               COUNT(DISTINCT CASE WHEN ch.channel = 'Internet' THEN cust END) AS customers
+        FROM (
+          SELECT 'Internet' AS channel, f."OrderDateKey" AS dk, f."SalesAmount" AS amt, f."CustomerKey" AS cust
+          FROM aw_dw2019_ru.dbo."FactInternetSales" f
+          UNION ALL
+          SELECT 'Reseller', r."OrderDateKey", r."SalesAmount", NULL
+          FROM aw_dw2019_ru.dbo."FactResellerSales" r
+        ) ch
+        JOIN aw_dw2019_ru.dbo."DimDate" d ON d."DateKey" = ch.dk
+        GROUP BY 1
+      ), lastfy AS (
+        SELECT max(fy) AS fy FROM sales_fy
+      ), sales_total AS (
+        SELECT SUM(amt) AS total FROM (
+          SELECT "SalesAmount" AS amt FROM aw_dw2019_ru.dbo."FactInternetSales"
+          UNION ALL
+          SELECT "SalesAmount" FROM aw_dw2019_ru.dbo."FactResellerSales"
+        ) t
+      ), quota AS (
+        SELECT SUM("SalesAmountQuota") AS q FROM aw_dw2019_ru.dbo."FactSalesQuota"
+      ), cat_gpm AS (
+        SELECT COALESCE(c."EnglishProductCategoryName", 'Прочее') AS category,
+               SUM(s.gp) AS gp, SUM(s.amt) AS amt
+        FROM (
+          SELECT "ProductKey" AS pk, SUM("SalesAmount" - "TotalProductCost") AS gp, SUM("SalesAmount") AS amt
+          FROM aw_dw2019_ru.dbo."FactInternetSales" GROUP BY 1
+          UNION ALL
+          SELECT "ProductKey", SUM("SalesAmount" - "TotalProductCost"), SUM("SalesAmount")
+          FROM aw_dw2019_ru.dbo."FactResellerSales" GROUP BY 1
+        ) s
+        LEFT JOIN aw_dw2019_ru.dbo."DimProduct" p ON p."ProductKey" = s.pk
+        LEFT JOIN aw_dw2019_ru.dbo."DimProductSubcategory" sub ON sub."ProductSubcategoryKey" = p."ProductSubcategoryKey"
+        LEFT JOIN aw_dw2019_ru.dbo."DimProductCategory" c ON c."ProductCategoryKey" = sub."ProductCategoryKey"
+        GROUP BY 1
+      )
+      SELECT 'net_income' AS kpi, NULL::VARCHAR AS member,
+             'Чистая прибыль' AS title, 'Financial Perspective' AS folder,
+             (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47) AS value,
+             (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) AS target,
+             CASE WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47), 0) >= 0.95 THEN 1
+                  WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47), 0) >= 0.85 THEN 0
+                  ELSE -1 END AS status,
+             'USD' AS unit, 'выше лучше' AS direction
+      UNION ALL
+      SELECT 'operating_profit', NULL, 'Операционная прибыль', 'Financial Perspective',
+             (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 48),
+             (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 48),
+             CASE WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 48) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 48), 0) >= 0.95 THEN 1
+                  WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 48) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 48), 0) >= 0.85 THEN 0
+                  ELSE -1 END,
+             'USD', 'выше лучше'
+      UNION ALL
+      SELECT 'operating_expenses', NULL, 'Операционные расходы', 'Financial Perspective',
+             (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 58),
+             (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 58),
+             CASE WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 58) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 58), 0) >= 0.95 THEN 1
+                  WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 58) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 58), 0) >= 0.85 THEN 0
+                  ELSE -1 END,
+             'USD', 'как SSAS (value/target)'
+      UNION ALL
+      SELECT 'financial_gross_margin', NULL, 'Финансовая валовая маржа', 'Financial Perspective',
+             (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 49),
+             (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 49),
+             CASE WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 49) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 49), 0) >= 0.95 THEN 1
+                  WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 49) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 49), 0) >= 0.85 THEN 0
+                  ELSE -1 END,
+             'USD', 'выше лучше'
+      UNION ALL
+      SELECT 'return_on_assets', NULL, 'Рентабельность активов (ROA)', 'Financial Perspective',
+             (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 2), 0),
+             (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 2), 0),
+             CASE WHEN (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 2) IS NULL
+                  OR (SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) IS NULL THEN 0
+                  WHEN ((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 2), 0))
+                     / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 2), 0), 0) >= 0.95 THEN 1
+                  WHEN ((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 2), 0))
+                     / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 2), 0), 0) >= 0.85 THEN 0
+                  ELSE -1 END,
+             'доля', 'выше лучше'
+      UNION ALL
+      SELECT 'financial_variance', NULL, 'Отклонение от бюджета, %', 'Financial Perspective',
+             ((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) - (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47))
+               / NULLIF(ABS((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47)), 0),
+             0.0,
+             CASE WHEN ABS(((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) - (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47))
+               / NULLIF(ABS((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47)), 0)) <= 0.05 THEN 1
+                  WHEN ABS(((SELECT amt FROM fin_signed WHERE scenario_key = 2 AND ancestor_key = 47) - (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47))
+               / NULLIF(ABS((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 47)), 0)) <= 0.10 THEN 0
+                  ELSE -1 END,
+             'доля', 'ближе к нулю лучше'
+      UNION ALL
+      SELECT 'expense_to_revenue', NULL, 'Расходы к выручке', 'Financial Perspective',
+             (SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 58) / NULLIF((SELECT total FROM sales_total), 0),
+             0.25,
+             CASE WHEN 0.25 / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 58) / NULLIF((SELECT total FROM sales_total), 0), 0) >= 0.95 THEN 1
+                  WHEN 0.25 / NULLIF((SELECT amt FROM fin_signed WHERE scenario_key = 1 AND ancestor_key = 58) / NULLIF((SELECT total FROM sales_total), 0), 0) >= 0.85 THEN 0
+                  ELSE -1 END,
+             'доля', 'ниже лучше'
+      UNION ALL
+      SELECT 'revenue', NULL, 'Выручка (последний FY)', 'Sales Perspective',
+             cur.total_amt,
+             CASE WHEN prev.total_amt IS NULL OR prev.total_amt = 0 THEN cur.total_amt ELSE 1.15 * prev.total_amt END,
+             CASE WHEN cur.total_amt / NULLIF(CASE WHEN prev.total_amt IS NULL OR prev.total_amt = 0 THEN cur.total_amt ELSE 1.15 * prev.total_amt END, 0) > 1 THEN 1
+                  WHEN cur.total_amt / NULLIF(CASE WHEN prev.total_amt IS NULL OR prev.total_amt = 0 THEN cur.total_amt ELSE 1.15 * prev.total_amt END, 0) >= 0.9 THEN 0
+                  ELSE -1 END,
+             'USD', 'выше лучше'
+      FROM sales_fy cur
+      LEFT JOIN sales_fy prev ON prev.fy = cur.fy - 1
+      CROSS JOIN lastfy WHERE cur.fy = lastfy.fy
+      UNION ALL
+      SELECT 'internet_revenue', NULL, 'Выручка интернета (последний FY)', 'Sales Perspective',
+             cur.internet_amt,
+             CASE WHEN prev.internet_amt IS NULL OR prev.internet_amt = 0 THEN cur.internet_amt ELSE 1.10 * prev.internet_amt END,
+             CASE WHEN cur.internet_amt / NULLIF(CASE WHEN prev.internet_amt IS NULL OR prev.internet_amt = 0 THEN cur.internet_amt ELSE 1.10 * prev.internet_amt END, 0) > 1 THEN 1
+                  WHEN cur.internet_amt / NULLIF(CASE WHEN prev.internet_amt IS NULL OR prev.internet_amt = 0 THEN cur.internet_amt ELSE 1.10 * prev.internet_amt END, 0) >= 0.9 THEN 0
+                  ELSE -1 END,
+             'USD', 'выше лучше'
+      FROM sales_fy cur
+      LEFT JOIN sales_fy prev ON prev.fy = cur.fy - 1
+      CROSS JOIN lastfy WHERE cur.fy = lastfy.fy
+      UNION ALL
+      SELECT 'channel_revenue', NULL, 'Выручка опта vs квота (весь период)', 'Sales Perspective',
+             (SELECT SUM("SalesAmount") FROM aw_dw2019_ru.dbo."FactResellerSales"),
+             (SELECT q FROM quota),
+             CASE WHEN (SELECT SUM("SalesAmount") FROM aw_dw2019_ru.dbo."FactResellerSales") / NULLIF((SELECT q FROM quota), 0) > 1 THEN 1
+                  WHEN (SELECT SUM("SalesAmount") FROM aw_dw2019_ru.dbo."FactResellerSales") / NULLIF((SELECT q FROM quota), 0) >= 0.9 THEN 0
+                  ELSE -1 END,
+             'USD', 'выше лучше'
+      UNION ALL
+      SELECT 'growth_customer_base', NULL, 'Рост клиентской базы (последний FY)', 'Sales Perspective',
+             CASE WHEN prev.customers IS NULL OR prev.customers = 0 THEN NULL
+                  ELSE 1.0 * (cur.customers - prev.customers) / prev.customers END,
+             0.30,
+             CASE WHEN cur.customers IS NULL OR prev.customers IS NULL OR prev.customers = 0 THEN 0
+                  WHEN 1.0 * (cur.customers - prev.customers) / prev.customers >= 0.30 THEN 1
+                  WHEN 1.0 * (cur.customers - prev.customers) / prev.customers >= 0.27 THEN 0
+                  ELSE -1 END,
+             'доля', 'выше лучше'
+      FROM sales_fy cur
+      LEFT JOIN sales_fy prev ON prev.fy = cur.fy - 1
+      CROSS JOIN lastfy WHERE cur.fy = lastfy.fy
+      UNION ALL
+      SELECT 'product_gross_profit_margin', g.category,
+             'Валовая маржа продукции', 'Sales Perspective',
+             g.gp / NULLIF(g.amt, 0),
+             CASE g.category WHEN 'Accessories' THEN 0.40 WHEN 'Bikes' THEN 0.12
+                             WHEN 'Clothing' THEN 0.20 WHEN 'Components' THEN 0.10 ELSE 0.12 END,
+             CASE WHEN (g.gp / NULLIF(g.amt, 0)) / NULLIF(CASE g.category WHEN 'Accessories' THEN 0.40 WHEN 'Bikes' THEN 0.12
+                             WHEN 'Clothing' THEN 0.20 WHEN 'Components' THEN 0.10 ELSE 0.12 END, 0) >= 0.90 THEN 1
+                  WHEN (g.gp / NULLIF(g.amt, 0)) / NULLIF(CASE g.category WHEN 'Accessories' THEN 0.40 WHEN 'Bikes' THEN 0.12
+                             WHEN 'Clothing' THEN 0.20 WHEN 'Components' THEN 0.10 ELSE 0.12 END, 0) >= 0.80 THEN 0
+                  ELSE -1 END,
+             'доля', 'выше лучше'
+      FROM cat_gpm g
+    joins: []
+
+    measures:
+      - name: value
+        title: Значение KPI
+        sql: value
+        type: sum
+        description: KpiValue из SSAS (сумма по строкам kpi при агрегации — обычно одна строка на KPI).
+      - name: target
+        title: Цель KPI
+        sql: target
+        type: sum
+        description: KpiGoal из SSAS (план/коэффициент).
+      - name: status_sum
+        title: Статус (сумма)
+        sql: status
+        type: sum
+        description: "Сумма статусов строк среза; для одного KPI: 1 / 0 / −1."
+
+    dimensions:
+      - name: kpi
+        title: KPI (идентификатор)
+        sql: kpi
+        type: string
+        primary_key: true
+        description: 'Идентификатор: net_income, operating_profit, operating_expenses, financial_gross_margin, return_on_assets, financial_variance, expense_to_revenue, revenue, internet_revenue, channel_revenue, growth_customer_base, product_gross_profit_margin.'
+      - name: member
+        title: Элемент
+        sql: member
+        type: string
+        primary_key: true
+        description: Разрез KPI (категория товара для продуктовой маржи; NULL у прочих).
+      - name: title
+        title: Название
+        sql: title
+        type: string
+        description: Человекочитаемое название KPI (RU).
+      - name: folder
+        title: Перспектива
+        sql: folder
+        type: string
+        description: Display Folder из SSAS (Financial/Sales Perspective).
+      - name: value_dim
+        title: Значение (raw)
+        sql: value
+        type: number
+        description: Значение KPI как размерность (для отображения в разрезе).
+      - name: target_dim
+        title: Цель (raw)
+        sql: target
+        type: number
+        description: Цель как размерность.
+      - name: status
+        title: Статус
+        sql: status
+        type: number
+        description: '1 — достигнута, 0 — близко, −1 — не достигнута (KpiStatus SSAS).'
+      - name: unit
+        title: Единица
+        sql: unit
+        type: string
+        description: 'USD / доля.'
+      - name: direction
+        title: Направление
+        sql: direction
+        type: string
+        description: Какая сторона лучше (выше/ниже/к нулю).

@@ -1,0 +1,26 @@
+# Сценарии (DimScenario): Actual / Budget / Forecast — для Finance/Quota.
+cubes:
+  - name: aw_dim_scenario
+    title: Сценарий
+    description: |
+      Измерение сценариев планирования (DimScenario). Grain: сценарий.
+      3 значения: Actual (факт), Budget (бюджет), Forecast (прогноз).
+      Используется FactFinance; в SSAS-кубе AW — сценарное измерение Finance.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimScenario"
+
+    joins: []
+
+    measures: []
+
+    dimensions:
+      - name: scenario_key
+        title: Ключ сценария
+        sql: '{CUBE}."ScenarioKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ сценария. Join-ключ FactFinance.ScenarioKey.
+      - name: scenario_name
+        title: Сценарий
+        sql: '{CUBE}."ScenarioName"'
+        type: string
+        description: Actual / Budget / Forecast.

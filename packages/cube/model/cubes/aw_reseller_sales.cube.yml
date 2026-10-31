@@ -1,0 +1,253 @@
+# Оптовые продажи (FactResellerSales) — факт строк заказов дилеров.
+# MG SSAS: Reseller Sales (11) + Reseller Orders (1).
+cubes:
+  - name: aw_reseller_sales
+    title: Оптовые продажи (дилеры)
+    description: |
+      Факт продаж дилерам AW: одна строка — позиция заказа. Grain:
+      (sales_order_number, sales_order_line_number), 60 855 строк.
+      Скидки: UnitPriceDiscountPct — доля (0–0.15), DiscountAmount — USD.
+      Соответствие SSAS: MG Reseller Sales + Reseller Orders.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."FactResellerSales"
+
+    joins:
+      - name: aw_dim_product
+        sql: '{CUBE}."ProductKey" = {aw_dim_product}."ProductKey"'
+        relationship: many_to_one
+      - name: aw_dim_reseller
+        sql: '{CUBE}."ResellerKey" = {aw_dim_reseller}."ResellerKey"'
+        relationship: many_to_one
+      - name: aw_dim_employee
+        sql: '{CUBE}."EmployeeKey" = {aw_dim_employee}."EmployeeKey"'
+        relationship: many_to_one
+      - name: aw_dim_promotion
+        sql: '{CUBE}."PromotionKey" = {aw_dim_promotion}."PromotionKey"'
+        relationship: many_to_one
+      - name: aw_dim_currency
+        sql: '{CUBE}."CurrencyKey" = {aw_dim_currency}."CurrencyKey"'
+        relationship: many_to_one
+      - name: aw_dim_sales_territory
+        sql: '{CUBE}."SalesTerritoryKey" = {aw_dim_sales_territory}."SalesTerritoryKey"'
+        relationship: many_to_one
+      - name: aw_date_order
+        sql: '{CUBE}."OrderDateKey" = {aw_date_order}."DateKey"'
+        relationship: many_to_one
+      - name: aw_date_due
+        sql: '{CUBE}."DueDateKey" = {aw_date_due}."DateKey"'
+        relationship: many_to_one
+      - name: aw_date_ship
+        sql: '{CUBE}."ShipDateKey" = {aw_date_ship}."DateKey"'
+        relationship: many_to_one
+
+    hierarchies:
+      - name: reseller_sales_orders
+        title: Заказы (опт)
+        levels: [sales_order_number, sales_order_line_number]
+
+    measures:
+      - name: sales_amount
+        title: Сумма продаж (опт)
+        sql: '{CUBE}."SalesAmount"'
+        type: sum
+        format: currency
+        description: |
+          Нетто-сумма позиции: ExtendedAmount − DiscountAmount, USD.
+          Эталон Ф9: 80 450 596.9823.
+          SSAS: [Reseller Sales Amount] MG=Reseller Sales.
+      - name: order_quantity
+        title: Количество (опт)
+        sql: '{CUBE}."OrderQuantity"'
+        type: sum
+        format: number
+        description: "Суммарное количество единиц, шт. SSAS: [Reseller Order Quantity] MG=Reseller Sales."
+      - name: extended_amount
+        title: Сумма до скидки (опт)
+        sql: '{CUBE}."ExtendedAmount"'
+        type: sum
+        format: currency
+        description: "Цена × количество до скидки, USD. SSAS: [Reseller Extended Amount] MG=Reseller Sales."
+      - name: discount_amount
+        title: Скидка (опт)
+        sql: '{CUBE}."DiscountAmount"'
+        type: sum
+        format: currency
+        description: "Сумма скидки по позициям, USD. SSAS: [Discount Amount] MG=Reseller Sales."
+      - name: tax_amount
+        title: Налог (опт)
+        sql: '{CUBE}."TaxAmt"'
+        type: sum
+        format: currency
+        description: "Сумма налога, USD. SSAS: [Reseller Tax Amount] MG=Reseller Sales."
+      - name: freight_cost
+        title: Доставка (опт)
+        sql: '{CUBE}."Freight"'
+        type: sum
+        format: currency
+        description: "Стоимость доставки, USD. SSAS: [Reseller Freight Cost] MG=Reseller Sales."
+      - name: total_product_cost
+        title: Полная себестоимость (опт)
+        sql: '{CUBE}."TotalProductCost"'
+        type: sum
+        format: currency
+        description: "Себестоимость с накладными, USD. SSAS: [Reseller Total Product Cost] MG=Reseller Sales."
+      - name: standard_product_cost
+        title: Стандартная себестоимость (опт)
+        sql: '{CUBE}."ProductStandardCost"'
+        type: sum
+        format: currency
+        description: "Стандартная себестоимость, USD. SSAS: [Reseller Standard Product Cost] MG=Reseller Sales."
+      - name: unit_price
+        title: Цена за единицу (опт, сумма)
+        sql: '{CUBE}."UnitPrice"'
+        type: sum
+        format: currency
+        description: |
+          СУММА цен позиций, USD — как в SSAS ([Reseller Unit Price], Sum).
+          Внимание: вне grain строки малополезна; средняя цена — Ф4.
+      - name: discount_pct_avg
+        title: Средняя скидка, % (опт)
+        sql: '{CUBE}."UnitPriceDiscountPct"'
+        type: avg
+        format: percent
+        description: |
+          Средняя по строкам доля скидки (0.02 = 2%). ⚠ не SSAS-эквивалент:
+          в SSAS [Unit Price Discount Percent] имеет агрегацию None (не
+          суммируется); здесь avg по grain строки для удобства разрезки.
+          SSAS: [Unit Price Discount Percent] MG=Reseller Sales (None).
+      - name: transaction_count
+        title: Транзакций (опт)
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: count
+        format: number
+        description: "Число строк-позиций. SSAS: [Reseller Transaction Count] MG=Reseller Sales (Count)."
+      - name: order_count
+        title: Заказов (опт)
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: count_distinct
+        format: number
+        description: "Число уникальных заказов. SSAS: [Reseller Order Count] MG=Reseller Orders (DistinctCount)."
+      - name: salesperson_count
+        title: Активных продавцов
+        sql: '{CUBE}."EmployeeKey"'
+        type: count_distinct
+        format: number
+        description: Число сотрудников с продажами в срезе (аналог SSAS [Total Active Salespeople] на срезе факта).
+      - name: gross_profit
+        title: Валовая прибыль (опт)
+        sql: '{CUBE}."SalesAmount" - {CUBE}."TotalProductCost"'
+        type: sum
+        format: currency
+        description: "SalesAmount − TotalProductCost, USD (numerator-семантика). SSAS: [Reseller Gross Profit] (calculated)."
+      - name: gross_profit_margin
+        title: Валовая маржа, % (опт)
+        sql: '{CUBE.gross_profit} / NULLIF({CUBE.sales_amount}, 0)'
+        type: number
+        format: percent
+        description: "Доля валовой прибыли в выручке (0.31 ≈ 31%). Деление мер, корректно на любом срезе. SSAS: [Reseller Gross Profit Margin] (calculated)."
+      - name: avg_unit_price
+        title: Средняя цена единицы (опт)
+        sql: '{CUBE.unit_price} / NULLIF({CUBE.transaction_count}, 0)'
+        type: number
+        format: currency
+        description: "Σ(UnitPrice) / число строк, USD. SSAS: [Reseller Average Unit Price] (calculated)."
+      - name: avg_sales_amount
+        title: Средняя сумма заказа (опт)
+        sql: '{CUBE.sales_amount} / NULLIF({CUBE.order_count}, 0)'
+        type: number
+        format: currency
+        description: "Выручка / число заказов, USD. SSAS: [Reseller Average Sales Amount] (calculated)."
+      - name: discount_pct
+        title: Скидка, % (опт)
+        sql: '{CUBE.discount_amount} / NULLIF({CUBE.extended_amount}, 0)'
+        type: number
+        format: percent
+        description: |
+          Сумма скидки / сумма до скидки (0.02 = 2%). Деление мер.
+          SSAS: [Discount Percentage] = [Discount Amount]/[Reseller Sales Amount];
+          здесь знаменатель — ExtendedAmount (без-скидочная база), точнее
+          по смыслу; расхождение с SSAS-формулой минимально.
+      - name: revenue_per_salesperson
+        title: Выручка на продавца
+        sql: '{CUBE.sales_amount} / NULLIF({CUBE.salesperson_count}, 0)'
+        type: number
+        format: currency
+        description: Выручка опта / число активных продавцов, USD (аналог SSAS [Revenue per Salesperson]).
+
+    dimensions:
+      - name: sales_order_number
+        title: Номер заказа
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: string
+        primary_key: true
+        description: Номер заказа SO#####. Часть grain факта.
+      - name: sales_order_line_number
+        title: Строка заказа
+        sql: '{CUBE}."SalesOrderLineNumber"'
+        type: number
+        primary_key: true
+        description: Номер позиции внутри заказа. Часть grain.
+      - name: unit_price_discount_pct
+        title: Скидка строки, %
+        sql: '{CUBE}."UnitPriceDiscountPct"'
+        type: number
+        description: Доля скидки строки (0–0.15); в SSAS мера None — здесь raw-размер строки.
+      - name: revision_number
+        title: Ревизия заказа
+        sql: '{CUBE}."RevisionNumber"'
+        type: number
+        description: Номер редакции заказа.
+      - name: carrier_tracking_number
+        title: Трек-номер
+        sql: '{CUBE}."CarrierTrackingNumber"'
+        type: string
+        description: Трек-номер перевозчика.
+      - name: customer_po_number
+        title: PO клиента
+        sql: '{CUBE}."CustomerPONumber"'
+        type: string
+        description: Номер PO дилера.
+      - name: product_key
+        title: Ключ товара
+        sql: '{CUBE}."ProductKey"'
+        type: number
+        description: FK → aw_dim_product.
+      - name: reseller_key
+        title: Ключ дилера
+        sql: '{CUBE}."ResellerKey"'
+        type: number
+        description: FK → aw_dim_reseller.
+      - name: employee_key
+        title: Ключ сотрудника
+        sql: '{CUBE}."EmployeeKey"'
+        type: number
+        description: FK → aw_dim_employee (продавец, оформивший заказ).
+      - name: promotion_key
+        title: Ключ акции
+        sql: '{CUBE}."PromotionKey"'
+        type: number
+        description: FK → aw_dim_promotion.
+      - name: currency_key
+        title: Ключ валюты
+        sql: '{CUBE}."CurrencyKey"'
+        type: number
+        description: FK → aw_dim_currency.
+      - name: sales_territory_key
+        title: Ключ территории
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        description: FK → aw_dim_sales_territory.
+      - name: order_date
+        title: Дата заказа
+        sql: '{CUBE}."OrderDate"'
+        type: time
+        description: Дата заказа (дублирует OrderDateKey).
+      - name: due_date
+        title: Срок оплаты
+        sql: '{CUBE}."DueDate"'
+        type: time
+        description: Плановый срок оплаты.
+      - name: ship_date
+        title: Дата отгрузки
+        sql: '{CUBE}."ShipDate"'
+        type: time
+        description: Дата отгрузки.

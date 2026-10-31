@@ -1,6 +1,6 @@
 # Миграция SSAS Multidimensional (AW2019SSASMD) → Cube
 
-Версия: 1.0 (2026-10-31). Источник-проект: `~/Git/DB/sqlserver/mssql-server-samplesdb/AW2019SSASMD`
+Версия: 1.1 (2026-10-31). Источник-проект: `~/Git/DB/sqlserver/mssql-server-samplesdb/AW2019SSASMD`
 (Analysis Services Multidimensional, Enterprise Edition, схема AW DW 2019).
 Целевой стек: Cube OSS 1.8.13 (self-hosted, docker-compose) поверх **`aw_dw2019_ru.duckdb`**
 (RU-база с богатыми COMMENT ON — см. `MIGRATION.md` репозитория-источника).
@@ -93,6 +93,12 @@
 3. **MDX-SCOPE валютная конверсия**: SSAS пересчитывает любую меру в валюту отчёта на лету.
    В Cube — один пересчитанный вариант (USD, AverageRate на дату заказа) в view
    `fact_internet_sales_usd`. Мультивалютность рантайма выпадает.
+   **Решено (2026-10-31): фикс. USD как основная валюта конвертации.**
+   **Уточнение при Ф5 (2026-10-31): конверсия НЕ НУЖНА** — суммы обоих фактов
+   уже хранятся в USD (CurrencyKey — валюта сделки для SSAS-конверсии в другие
+   pivot-валюты; сырые SUM == SSAS-тоталам при pivot USD: 29 358 677.2207 /
+   80 450 596.9823). Факт-вьюхи `fact_*_usd` не строятся; решение «фикс. USD»
+   выполняется тривиально. Курсы остаются справочником (aw_exchange_rates).
 4. **Ratio-меры** (Ratio to All/Parent Products, Gross Profit Margin %): корректны только при
    агрегировании numerator/denominator отдельно. В Cube это делается делением мер-сумм
    (или `views` с window functions по нужному grain). Ratio-to-parent — window по иерархии
@@ -145,49 +151,111 @@ Cube REST/SQL API → opencode (Cube MCP) / Evidence
 
 ## 8. Фазы реализации
 
-- [ ] **Ф0. Подключение источника** (0.5 д): копия БД в `warehouse/`, конфиг cube.js,
+- [x] **Ф0. Подключение источника** (0.5 д): копия БД в `warehouse/`, конфиг cube.js,
       `just serve-up`, проверка `/meta` (таблицы видны, описания читаются из duckdb_columns).
       Защитное правило: только чтение, как `pocketstack.duckdb`.
-- [ ] **Ф1. Генератор моделей** (1 д): `scripts/gen_aw_cube_models.py` — из DDL +
+      ✅ 2026-10-31: ATTACH AS aw_dw2019_ru (READ_ONLY) на каждом коннекте
+      (TimingDuckDBDriver.configureConnection, оба режима); 30 таблиц; эталоны §9 сняты;
+      регресс TPC-H: /meta 200, sales.revenue отвечает.
+- [x] **Ф1. Генератор моделей** (1 д): `scripts/gen_aw_cube_models.py` — из DDL +
       `aw_metadata.tsv` генерирует скелеты `aw_dim_*.cube.yml` (title/description RU,
       primary_key, types). Ручная доводка поверх скелетов. Принцип: генерим один раз,
       дальше модели живут в git (не templated data-blending).
-- [ ] **Ф2. Измерения** (1 д): 11 dim-кубов с иерархиями (Date ×4, Product ×3,
+      ✅ 2026-10-31: TDD (21 тест, packages/harness/tests/test_gen_aw_models.py);
+      25 скелетов (16 Dim + 9 Fact, SKIP 5 служебных); /meta 33 куба, 0 ошибок;
+      запросы aw_dim_currency/aw_internet_sales через REST подтверждают ATTACH.
+- [x] **Ф2. Измерения** (1 д): 11 dim-кубов с иерархиями (Date ×4, Product ×3,
       Customer Geography, Sales Territory, Reseller ×4…), ролевые даты ×3 алиасами.
-- [ ] **Ф3. Факты: базовые меры** (1 д): 6 кубов, 38 SSAS-мер → sum/count/count_distinct;
+      ✅ 2026-10-31: 11 aw_dim_* (account, currency, customer+geo, date, employee,
+      product+subcat/cat, promotion, reseller+geo, sales_reason, sales_territory,
+      scenario) + 3 ролевых aw_date_{order,due,ship} (копии базового куба).
+      Иерархии = ground truth из SSAS .dim (Customer Geography, 4×Date, 3×Product,
+      Promotions, 4×Reseller, Sales Territory, Sales Reasons, Employee Department).
+      Снежинки geography/subcategory денормализованы в sql кубов; ES/FR вне скоупа.
+      Грабли: js-yaml не терпит «: » в plain-скалярах; Cube 1.8.13 не принимает
+      description в hierarchies (тексты перенесены в description куба).
+- [x] **Ф3. Факты: базовые меры** (1 д): 6 кубов, 38 SSAS-мер → sum/count/count_distinct;
       join-деревья без фан-аута (проверка: сумма SalesAmount == SQL-эталон).
+      ✅ 2026-10-31: 6 кубов (internet_sales 11 мер, reseller_sales 12,
+      sales_summary 11 UNION ALL + sales_channel, sales_targets, finance интерим,
+      exchange_rates интерим). Верифицировано: internet 29 358 677.2207 /
+      reseller 80 450 596.9823 / summary 109 809 274.2030; DC: 27 659 заказов,
+      18 484 клиента; анти-фанаут: Σ по категориям == тотал (29 358 677.2207).
+      ByAccount/LastNonEmpty/AverageOfChildren — интерим-меры с пометками (Ф5).
+      Joins: {cube}."RawCol" плейсхолдеры (subquery-cubes), ролевые даты ×3.
+      Удалены внескоуповые скелеты call_center/survey/product_inventory.
 - [ ] **Ф4. Calculated members → SQL** (1–2 д): 23 меры: Gross Profit (sum-numerator /
       sum-denominator), Margin %, Avg Unit Price/Sales Amount (взвешенные), YoY Growth
       (window ym-12 — паттерн `sales_mov`), Discount %, Revenue per Salesperson.
-- [ ] **Ф5. Полуаддитивные + валюты** (1 д): Exchange Rates (LastNonEmpty → подзапрос
+- [x] **Ф5. Полуаддитивные + валюты** (1 д): Exchange Rates (LastNonEmpty → подзапрос
       argmax по DateKey; AverageOfChildren → AVG), fact_*_usd конверсия AverageRate,
       Financial Amount ByAccount → CASE по AccountType + предагрегированные итоги.
-- [ ] **Ф6. Parent-child flatten + унарные операторы** (1–1.5 д): closure-views в DuckDB
+      ✅ 2026-10-31: УПРОЩЕНИЕ — конверсия не нужна: суммы фактов уже USD
+      (CurrencyKey — валюта сделки; сырые SUM == SSAS-тоталам при pivot USD,
+      §4.3 обновлён). Exchange Rates: average_rate_avg (avg, приближение
+      AverageOfChildren) + last_end_of_day_rate (LastNonEmpty-эмуляция:
+      скалярный argmax-подзапрос, срез по валюте; GBP 1.5533/EUR 0.9669/CAD
+      0.6347 — правдоподобные AW-курсы). ByAccount → Ф6 (aw_account_flat).
+- [x] **Ф6. Parent-child flatten + унарные операторы** (1–1.5 д): closure-views в DuckDB
       (recursive CTE) для Account/Employee/Organization/Department; для Account и
       Organization — sign-колонка из Operator (`+→1, -→-1, ~→0`) и мера
       `Account Amount = SUM(sign·Amount)` (эмуляция унарной семантики, §4.1);
       иерархии уровней в Cube; контроль корневых итогов.
-- [ ] **Ф7. M2M Sales Reasons** (0.5 д): count-меры + bridge-view с аллокацией (пометка
+      ✅ 2026-10-31: 4 flatten-куба (inline recursive CTE, БЕЗ записи в duckdb —
+      отклонение от §7 в пользу git-версионированных моделей): aw_account_flat
+      (sign-эмуляция; корень Balance Sheet = 0.000000064 — минусы сводят баланс,
+      контроль §4.1 пройден; amount_leaf == ΣFactFinance 1 358 640 412.70),
+      aw_employee_flat (простая свёртка; команда Stephen Y Jiang 63.3M — канон AW),
+      aw_organization_flat (ВЕСОВАЯ унарная колонка: SSAS Organization operator =
+      PercentageOfOwnership, вклад = доля владения; closure с Π весов),
+      aw_department_flat. Меры-листья через SUM(CASE WHEN depth=0) — без фана.
+- [x] **Ф7. M2M Sales Reasons** (0.5 д): count-меры + bridge-view с аллокацией (пометка
       «не SSAS-эквивалент»).
-- [ ] **Ф8. KPI → метрики** (1 д): извлечь полный список KPI из `.cube`; каждая KPI →
+      ✅ 2026-10-31: куб aw_sales_reason (inline CTE): reason_line_count (Count),
+      orders_count (DC), allocated_sales_amount (равные доли между причинами
+      строки). Контроль: Σ аллокации == выручка строк с причинами
+      22 430 131.5744 (строки без причин в разрез не попадают — как в SSAS M2M).
+- [x] **Ф8. KPI → метрики** (1 д): извлечь полный список KPI из `.cube`; каждая KPI →
       **метрика в `aw_kpi.view.yml`**: `value` (базовая мера/SQL), сопутствующие
       `target_*` и `status_*` (SQL CASE против цели); метрики соответствуют
       MetricFlow-семантике Cube и запрашиваются агентом как единый объект.
-- [ ] **Ф9. Верификация** (1 д): golden-queries: 15–20 контрольных агрегатов (SQL к
+      ✅ 2026-10-31: извлечены все 12 KPI из XML (Value/Goal/Status MDX).
+      Реализовано кубом aw_kpi (long-формат: строка = KPI; product margin —
+      по категории, 15 строк): колонки value/target/status (KpiValue/Goal/Status),
+      пороги из MDX; финансы — Actual vs Budget с унарной свёрткой поддерева
+      счёта; revenue-семейство — последний FY vs LY×1.15/1.10/квота; ROA при
+      пустом бюджете = status 0 («Not Budgeted», как SSAS).
+- [x] **Ф9. Верификация** (1 д): golden-queries: 15–20 контрольных агрегатов (SQL к
       duckdb напрямую == Cube REST == значения, зафиксированные в этом доке);
       анти-тест фан-аута (join не удваивает суммы); контрольный итог унарной
       эмуляции (корень Account == Σ sign·Amount); тесты в `packages/harness`
       (расширение текущих 70 passed).
-- [ ] **Ф10. Доки и демо** (0.5 д): раздел в `README`, пример запроса агента,
+      ✅ 2026-10-31: packages/harness/tests/test_aw_golden.py — 20 тестов
+      (тоталы/DC-меры, фан-аут ×4 включая M2M, margin=ratio_of_sums,
+      mov-Σ==109 809 274.2030, Σ долей категорий==1.0, баланс==0,
+      CEO-итог==80 450 596.98, LastNonEmpty==argmax SQL, KPI↔account_flat
+      консистентность). Прогон: 164 passed, 22 skipped (регрессии нет).
+- [x] **Ф10. Доки и демо** (0.5 д): раздел в `README`, пример запроса агента,
       Evidence-страница «AW: SSAS vs Cube».
+      ✅ 2026-10-31: README-раздел «AW: SSAS Multidimensional → Cube» (обзор,
+      пример запроса); Evidence-страница /aw-ssas-vs-cube (KPI-таблица,
+      выручка по годам×каналам, категории; источники aw_kpi/aw_summary_by_year/
+      aw_product_categories материализуются `npm run sources`).
+      Грабли Evidence: SQL API 1.8.13 не поддерживает cross-cube JOIN
+      (ни явный, ни неявный) — источники переписаны на одиночные кубы
+      (mov/ratios уже содержат нужные разрезы). Ещё: (1) литеральные `<...>`
+      в markdown-заголовках ломают компиляцию страницы (Svelte-парсер);
+      (2) `docker compose build evidence` стирает материализованные
+      sources/манифест — после КАЖДОЙ пересборки образа выполнять
+      `docker compose exec evidence npm run sources` (как в just rebuild).
 
 Итого оценка: ~8–9 рабочих дней.
 
 ## 9. Верификация
 
-- Эталоны (SQL по duckdb, значения зафиксировать в доке при Ф9):
-  `FactInternetSales.SUM(SalesAmount) = 29 358 677.2207`,
-  `FactResellerSales.SUM(SalesAmount) = 80 450 596.9843` *(проверить при Ф10)*,
+- Эталоны (SQL по duckdb, сняты при Ф0, движок 1.5.5):
+  `FactInternetSales.SUM(SalesAmount) = 29 358 677.2207` (60 398 строк),
+  `FactResellerSales.SUM(SalesAmount) = 80 450 596.9823` (60 855 строк),
   DistinctCount заказов, COUNT по причинам и т.д.
 - Каждая ratio-мера проверяется на 2+ уровнях иерархии (total ≠ avg of children).
 - Фан-аут: заказ с несколькими SalesReason не увеличивает выручку в витрине причин.
@@ -202,13 +270,16 @@ Cube REST/SQL API → opencode (Cube MCP) / Evidence
 | Формат duckdb 2.0 (CLI) портит файл | правило `plan.md`: только чтение, writer 1.5.5 |
 | Объём ручной доводки descriptions | генератор Ф1 из tsv; ручная доводка только факт-мер |
 
-Открытые вопросы (решить до Ф4):
-1. Нужна ли мультивалютность рантайма или фикс. USD достаточно для демо?
+Открытые вопросы — закрыты (2026-10-31):
+1. **Мультивалютность рантайма vs фикс. USD → решено: фикс. USD (основная валюта)**.
+   Конверсия — единственный предвычисленный вариант в USD (AverageRate на OrderDateKey,
+   `fact_*_usd`, см. §4.3); выбор валюты отчёта в рантайме — вне скоупа.
 
 ## 11. Скоуп миграции — итоговые списки
 
 **Вне скоупа (решено, не рассматриваем):** ⛔ named sets · perspectives · translations
-(es/fr) · actions/drillthrough · proactive caching · AMO/XMLA · Excel PivotTable (MDX).
+(es/fr) · actions/drillthrough · proactive caching · AMO/XMLA · Excel PivotTable (MDX) ·
+мультивалютность рантайма (решено 2026-10-31: фикс. USD).
 
 **Отложено:** ⏸ партиции + aggregation designs (вернуться по профилированию bench-protocol) ·
 роли/безопасность ячеек (cell-level; dimensional RBAC в OSS есть — при необходимости).

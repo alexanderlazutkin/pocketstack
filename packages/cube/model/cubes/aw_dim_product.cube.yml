@@ -1,0 +1,154 @@
+# Товар + снежинка Subcategory/Category (денормализована: уровни иерархии
+# Categories должны жить в одном кубе). LEFT JOIN — товары без подкатегории.
+cubes:
+  - name: aw_dim_product
+    title: Товар
+    description: |
+      Измерение товаров AW (DimProduct + подкатегория/категория из снежинки
+      DimProductSubcategory → DimProductCategory). Grain: товар (SKU).
+      606 товаров: велосипеды, комплектующие, одежда, аксессуары.
+      Атрибуты цен — список (ListPrice), себестоимость (StandardCost),
+      дилерская цена (DealerPrice), USD.
+    sql: |
+      SELECT
+        p.*,
+        s."EnglishProductSubcategoryName" AS subcategory_name,
+        c."EnglishProductCategoryName" AS category_name
+      FROM aw_dw2019_ru.dbo."DimProduct" p
+      LEFT JOIN aw_dw2019_ru.dbo."DimProductSubcategory" s
+        ON s."ProductSubcategoryKey" = p."ProductSubcategoryKey"
+      LEFT JOIN aw_dw2019_ru.dbo."DimProductCategory" c
+        ON c."ProductCategoryKey" = s."ProductCategoryKey"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: product_categories
+        title: Категории товаров
+        levels: [category_name, subcategory_name, product_name]
+      - name: product_model_lines
+        title: Линейки и модели
+        levels: [product_line, model_name]
+      - name: stock_level
+        title: Уровень запасов
+        levels: [safety_stock_level, product_name]
+
+    dimensions:
+      - name: product_key
+        title: Ключ товара
+        sql: '{CUBE}."ProductKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ товара. Join-ключ фактов продаж.
+      - name: product_name
+        title: Товар
+        sql: '{CUBE}."EnglishProductName"'
+        type: string
+        description: Название товара (включает цвет/размер для велосипедов). Уровень иерархий «Категории», «Уровень запасов».
+      - name: product_alternate_key
+        title: SKU
+        sql: '{CUBE}."ProductAlternateKey"'
+        type: string
+        description: Натуральный ключ товара (SKU, BK_B64…).
+      - name: category_name
+        title: Категория
+        sql: '{CUBE}.category_name'
+        type: string
+        description: Категория верхнего уровня (Bikes, Components, Clothing, Accessories). Уровень иерархии «Категории товаров».
+      - name: subcategory_name
+        title: Подкатегория
+        sql: '{CUBE}.subcategory_name'
+        type: string
+        description: Подкатегория (Mountain Bikes, Road Bikes, …). Уровень иерархии «Категории товаров». NULL у товаров без подкатегории.
+      - name: product_line
+        title: Линейка
+        sql: '{CUBE}."ProductLine"'
+        type: string
+        description: 'Линейка: R (Road), M (Mountain), S (Standard), T (Touring). Уровень иерархии «Линейки и модели».'
+      - name: model_name
+        title: Модель
+        sql: '{CUBE}."ModelName"'
+        type: string
+        description: Модель товара (HL Road Frame, Mountain-100…). Уровень иерархии «Линейки и модели».
+      - name: color
+        title: Цвет
+        sql: '{CUBE}."Color"'
+        type: string
+        description: Цвет (Black, Red, Silver…; NULL — не задан).
+      - name: class
+        title: Класс
+        sql: '{CUBE}."Class"'
+        type: string
+        description: Класс качества (H/M/L — High/Medium/Low).
+      - name: style
+        title: Стиль
+        sql: '{CUBE}."Style"'
+        type: string
+        description: 'Стиль (W — Women, M — Men, U — Universal).'
+      - name: size
+        title: Размер
+        sql: '{CUBE}."Size"'
+        type: string
+        description: Размер (величина в единицах SizeUnitMeasureCode).
+      - name: size_range
+        title: Диапазон размеров
+        sql: '{CUBE}."SizeRange"'
+        type: string
+        description: Группировка размеров (40-42, 46-48…).
+      - name: weight
+        title: Вес
+        sql: '{CUBE}."Weight"'
+        type: number
+        description: Вес в единицах WeightUnitMeasureCode (LB / G).
+      - name: safety_stock_level
+        title: Страховой запас
+        sql: '{CUBE}."SafetyStockLevel"'
+        type: number
+        description: Уровень страхового запаса, шт. Уровень иерархии «Уровень запасов».
+      - name: reorder_point
+        title: Точка заказа
+        sql: '{CUBE}."ReorderPoint"'
+        type: number
+        description: Порог пополнения запаса, шт.
+      - name: standard_cost
+        title: Себестоимость
+        sql: '{CUBE}."StandardCost"'
+        type: number
+        description: Стандартная себестоимость единицы, USD.
+      - name: list_price
+        title: Цена (прайс)
+        sql: '{CUBE}."ListPrice"'
+        type: number
+        description: Цена по прайс-листу, USD.
+      - name: dealer_price
+        title: Дилерская цена
+        sql: '{CUBE}."DealerPrice"'
+        type: number
+        description: Цена для дилеров, USD.
+      - name: days_to_manufacture
+        title: Дней производства
+        sql: '{CUBE}."DaysToManufacture"'
+        type: number
+        description: Длительность производства, дней.
+      - name: finished_goods_flag
+        title: Готовое изделие
+        sql: '{CUBE}."FinishedGoodsFlag"'
+        type: boolean
+        description: TRUE — готовое изделие, FALSE — компонент.
+      - name: status
+        title: Статус
+        sql: '{CUBE}."Status"'
+        type: string
+        description: Current / Churned — актуальность товара.
+      - name: start_date
+        title: Начало продаж
+        sql: '{CUBE}."StartDate"'
+        type: time
+        description: Дата начала выпуска/продаж.
+      - name: end_date
+        title: Конец продаж
+        sql: '{CUBE}."EndDate"'
+        type: time
+        description: Дата снятия с производства (NULL — в производстве).

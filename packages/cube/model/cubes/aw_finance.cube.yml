@@ -1,0 +1,76 @@
+# Финансы (FactFinance). MG SSAS: Financial Reporting ([Amount], ByAccount).
+# Ф3 — интерим: сумма Amount; ByAccount-семантика (доход/расход со знаками
+# по AccountType) и унарные операторы — Ф5/Ф6 (см. §4.1 док-та миграции).
+cubes:
+  - name: aw_finance
+    title: Финансы
+    description: |
+      Факт финансовой отчётности AW: одна строка — счёт × организация × отдел
+      × сценарий × день. Grain: (finance_key), 8 988 строк. Суммы — USD.
+      ВНИМАНИЕ (интерим Ф3): мера amount — простая сумма Amount. В SSAS мера
+      [Amount] имеет агрегацию ByAccount (знак по AccountType: доходы +,
+      расходы −) и унарные операторы плана счетов. Корректная эмуляция —
+      aw_finance_signed (Ф6); здесь — трассировка строк и разрезы.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."FactFinance"
+
+    joins:
+      - name: aw_dim_account
+        sql: '{CUBE}."AccountKey" = {aw_dim_account}."AccountKey"'
+        relationship: many_to_one
+      - name: aw_dim_scenario
+        sql: '{CUBE}."ScenarioKey" = {aw_dim_scenario}."ScenarioKey"'
+        relationship: many_to_one
+      - name: aw_dim_date
+        sql: '{CUBE}."DateKey" = {aw_dim_date}."DateKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: amount
+        title: Сумма (интерим, без ByAccount)
+        sql: '{CUBE}."Amount"'
+        type: sum
+        format: currency
+        description: |
+          Простая сумма Amount, USD. ⚠ не SSAS-эквивалент: в SSAS [Amount]
+          агрегируется ByAccount (знак по AccountType) с унарными операторами
+          (Ф6 даст signed-версию). Годится для разрезов по сценариям/датам
+          на фиксированных счетах.
+          SSAS: [Amount] MG=Financial Reporting (ByAccount).
+
+    dimensions:
+      - name: finance_key
+        title: Ключ строки
+        sql: '{CUBE}."FinanceKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ строки факта.
+      - name: account_key
+        title: Ключ счёта
+        sql: '{CUBE}."AccountKey"'
+        type: number
+        description: FK → aw_dim_account.
+      - name: organization_key
+        title: Ключ организации
+        sql: '{CUBE}."OrganizationKey"'
+        type: number
+        description: "FK → DimOrganization (parent-child, Ф6: aw_dim_organization)."
+      - name: department_group_key
+        title: Ключ отдела
+        sql: '{CUBE}."DepartmentGroupKey"'
+        type: number
+        description: FK → DimDepartmentGroup (иерархия отделов, Ф6).
+      - name: scenario_key
+        title: Ключ сценария
+        sql: '{CUBE}."ScenarioKey"'
+        type: number
+        description: FK → aw_dim_scenario (Actual/Budget/Forecast).
+      - name: date_key
+        title: Ключ даты
+        sql: '{CUBE}."DateKey"'
+        type: number
+        description: FK → aw_dim_date (DateKey дня).
+      - name: date
+        title: Дата
+        sql: '{CUBE}."Date"'
+        type: time
+        description: Календарная дата строки.

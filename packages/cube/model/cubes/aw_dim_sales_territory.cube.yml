@@ -1,0 +1,41 @@
+# Территории продаж (DimSalesTerritory). Иерархия: Group > Country > Region.
+cubes:
+  - name: aw_dim_sales_territory
+    title: Территория продаж
+    description: |
+      Измерение территорий продаж AW (DimSalesTerritory). Grain: регион.
+      10 регионов: 3 группы (Europe, North America, Pacific) × страны.
+      Конформное измерение: используется интернет-, оптовыми продажами и квотами.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimSalesTerritory"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: sales_territory
+        title: Территории
+        levels: [sales_territory_group, sales_territory_country, sales_territory_region]
+
+    dimensions:
+      - name: sales_territory_key
+        title: Ключ территории
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ территории. Join-ключ фактов (SalesTerritoryKey).
+      - name: sales_territory_region
+        title: Регион
+        sql: '{CUBE}."SalesTerritoryRegion"'
+        type: string
+        description: Регион продаж (Southwest, France, Germany…). Уровень иерархии «Территории».
+      - name: sales_territory_country
+        title: Страна
+        sql: '{CUBE}."SalesTerritoryCountry"'
+        type: string
+        description: Страна территории (United States, France…). Уровень иерархии «Территории».
+      - name: sales_territory_group
+        title: Группа
+        sql: '{CUBE}."SalesTerritoryGroup"'
+        type: string
+        description: Группа территорий (Europe, North America, Pacific). Уровень иерархии «Территории».

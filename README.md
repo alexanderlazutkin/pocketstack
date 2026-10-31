@@ -128,6 +128,33 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 | `docs/bi-tools-comparison.md` | сравнение BI-инструментов (исследовательский снимок, выбор Evidence) |
 | `docs/bench-protocol.md` | протокол оценки запросов (два режима) |
 | `docs/gotchas.md` | нюансы и грабли: симптом → причина → решение |
+| `docs/ssasmd-cube-migration.md` | **AW: SSAS Multidimensional → Cube** — миграция куба Adventure Works (12 KPI, унарные операторы, M2M), фазы Ф0–Ф10 |
+
+## AW: SSAS Multidimensional → Cube
+
+Аналитика куба SSAS MD `Adventure Works` (AW2019SSISMD) воспроизведена в
+семантическом слое Cube поверх RU-базы `warehouse/aw_dw2019_ru.duckdb`
+(AdventureWorksDW2019, 30 таблиц; копия из репо-источника
+`mssql-server-samplesdb`, **только чтение**; восстановление — `docs/ssasmd-cube-migration.md §5`).
+
+- **28 aw_*-кубов**: 11 измерений (иерархии = SSAS: Date ×4, Product ×3,
+  Customer Geography, Sales Territory, Reseller ×4…) + ролевые даты
+  `aw_date_{order,due,ship}` + 6 фактов (38 SSAS-мер) + производные
+  (aw_sales_mov YoY/PoP, aw_product_ratios, aw_kpi — 12 KPI) + 4 flatten-куба
+  parent-child (Account с **эмуляцией унарных операторов** sign-колонкой,
+  Organization с весами PercentageOfOwnership, Employee, Department) +
+  M2M-мост `aw_sales_reason` (аллокация выручки по причинам).
+- Все метаданные — RU (title/description), каждая мера трассируется
+  `SSAS: [имя] MG=...`; не-эквиваленты помечены «⚠ не SSAS-эквивалент».
+- Верификация: 20 golden-тестов (`packages/harness/tests/test_aw_golden.py`)
+  в общем прогоне `just verify`; Evidence-страница `/aw-ssas-vs-cube`.
+- Пример запроса агента (Cube MCP / REST):
+
+```json
+{"measures": ["aw_internet_sales.sales_amount", "aw_internet_sales.gross_profit_margin"],
+ "dimensions": ["aw_dim_product.category_name"]}
+```
+
 
 Skills для AI-агента (правила работы с кубами pocketstack через MCP):
 `.opencode/skills/` — `cube-explore-model`, `cube-build-model`, `cube-run-query`.

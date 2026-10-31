@@ -1,0 +1,34 @@
+# Валюты (DimCurrency) — валюта СДЕЛКИ (source currency).
+# Destination Currency / рантайм-конверсия — вне скоупа (решено: фикс. USD, Ф5).
+cubes:
+  - name: aw_dim_currency
+    title: Валюта
+    description: |
+      Измерение валют сделки (DimCurrency). Grain: валюта. 105 валют, сделки
+      AW интернет-магазина ведутся в локальных валютах, курсы — FactCurrencyRate
+      к USD (Destination Currency в SSAS; рантайм-пересчёт в произвольную валюту
+      отчёта исключён — решение 2026-10-31: фикс. USD, docs §4.3). Все денежные
+      меры aw_* — уже USD, если не указано иное.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimCurrency"
+
+    joins: []
+
+    measures: []
+
+    dimensions:
+      - name: currency_key
+        title: Ключ валюты
+        sql: '{CUBE}."CurrencyKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ валюты. Join-ключ FactInternetSales.CurrencyKey и FactCurrencyRate.CurrencyKey.
+      - name: currency_alternate_key
+        title: ISO-код валюты
+        sql: '{CUBE}."CurrencyAlternateKey"'
+        type: string
+        description: Трёхбуквенный ISO-код (USD, EUR, RUB…).
+      - name: currency_name
+        title: Валюта
+        sql: '{CUBE}."CurrencyName"'
+        type: string
+        description: Полное название валюты (US Dollar…).

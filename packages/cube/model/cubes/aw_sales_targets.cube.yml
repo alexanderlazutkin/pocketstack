@@ -1,0 +1,59 @@
+# Квоты продаж (FactSalesQuota). MG SSAS: Sales Targets ([Sales Amount Quota]).
+cubes:
+  - name: aw_sales_targets
+    title: Квоты продаж
+    description: |
+      Факт целевых показателей продаж: одна строка — сотрудник × квартал.
+      Grain: (employee_key, date_key квартала), 1 000 строк. Квота — план,
+      USD; сравнение план/факт — по employee_key и году/кварталу против
+      aw_reseller_sales (продавцы). Соответствие SSAS: MG Sales Targets.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."FactSalesQuota"
+
+    joins:
+      - name: aw_dim_employee
+        sql: '{CUBE}."EmployeeKey" = {aw_dim_employee}."EmployeeKey"'
+        relationship: many_to_one
+      - name: aw_dim_date
+        sql: '{CUBE}."DateKey" = {aw_dim_date}."DateKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: sales_amount_quota
+        title: Квота продаж
+        sql: '{CUBE}."SalesAmountQuota"'
+        type: sum
+        format: currency
+        description: "Сумма квартальных квот сотрудников, USD. SSAS: [Sales Amount Quota] MG=Sales Targets."
+
+    dimensions:
+      - name: sales_quota_key
+        title: Ключ квоты
+        sql: '{CUBE}."SalesQuotaKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ строки квоты.
+      - name: employee_key
+        title: Ключ сотрудника
+        sql: '{CUBE}."EmployeeKey"'
+        type: number
+        description: FK → aw_dim_employee (квоты у продавцов).
+      - name: date_key
+        title: Ключ даты квартала
+        sql: '{CUBE}."DateKey"'
+        type: number
+        description: DateKey первого дня квартала (20120101 = Q1 2012). Join к aw_dim_date.
+      - name: calendar_year
+        title: Год квоты
+        sql: '{CUBE}."CalendarYear"'
+        type: number
+        description: Календарный год квоты (дублирован в факте для прямых разрезов).
+      - name: calendar_quarter
+        title: Квартал квоты
+        sql: '{CUBE}."CalendarQuarter"'
+        type: number
+        description: Квартал 1–4.
+      - name: date
+        title: Дата квартала
+        sql: '{CUBE}."Date"'
+        type: time
+        description: Дата первого дня квартала.

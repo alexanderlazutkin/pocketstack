@@ -4,6 +4,20 @@ const { DuckDBDriver } = require('@cubejs-backend/duckdb-driver');
 
 const WAREHOUSE = path.resolve(__dirname, '../../warehouse/pocketstack.duckdb');
 
+// AW-витрина (SSAS-миграция: docs/ssasmd-cube-migration.md §5): RU-копия
+// AdventureWorksDW2019 (writer — DuckDB 1.5.5 в репо-источнике), здесь — только
+// чтение. Не в git (.gitignore: warehouse/*.duckdb): восстановление — копией из
+// mssql-server-samplesdb или прогоном migrate.sh (см. док). Модели адресуют
+// её полным путём: aw_dw2019_ru.dbo."FactInternetSales".
+const AW_DW = path.resolve(__dirname, '../../warehouse/aw_dw2019_ru.duckdb');
+if (!fs.existsSync(AW_DW)) {
+  throw new Error(
+    `Не найден ${AW_DW}. Восстановите RU-базу: ` +
+      'cp ~/Git/DB/sqlserver/mssql-server-samplesdb/migration/aw_dw2019_ru.duckdb warehouse/ ' +
+      '(docs/ssasmd-cube-migration.md §5)'
+  );
+}
+
 // Режим хранилища (Stage 7): file (основной) | ducklake (pg-каталог + MinIO).
 // Переключатель — WAREHOUSE_MODE в .env (см. .env.example).
 const WAREHOUSE_MODE = process.env.WAREHOUSE_MODE || 'file';
@@ -69,9 +83,15 @@ class TimingDuckDBDriver extends DuckDBDriver {
   // AUTOMATIC_MIGRATION со стороны читателя (docs/plan.md Stage 7).
   async configureConnection(connection) {
     await super.configureConnection(connection);
+    const run = (sql) => connection.run(sql);
+
+    // AW-каталог (SSAS-миграция): на КАЖДОМ коннекте пула — ATTACH есть свойство
+    // сессии (как ducklake ниже), инициализация одного коннекта даёт «плавающие»
+    // ошибки. READ_ONLY — защитное правило plan.md (writer живёт в репо-источнике).
+    await run(`ATTACH '${AW_DW}' AS aw_dw2019_ru (READ_ONLY)`);
+
     if (WAREHOUSE_MODE !== 'ducklake') return;
 
-    const run = (sql) => connection.run(sql);
     for (const ext of ['httpfs', 'postgres', 'ducklake']) {
       try {
         await run(`LOAD ${ext}`);

@@ -1,0 +1,148 @@
+# Клиент + снежинка Geography (денормализована в sql — уровни Country > State >
+# City > Postal Code > Customer должны жить в одном кубе, иерархия не_spanит кубы).
+# ES/FR-колонки исключены (translations вне скоупа).
+cubes:
+  - name: aw_dim_customer
+    title: Клиент
+    description: |
+      Измерение клиентов интернет-магазина AW (DimCustomer + география из
+      DimGeography по GeographyKey). Grain: клиент. Клиенты AW — частные лица
+      (консументы), 18 484 строки. Географические атрибуты (страна, штат, город,
+      индекс) денормализованы из DimGeography для иерархии Customer Geography.
+    sql: |
+      SELECT
+        c.*,
+        g."City" AS city,
+        g."StateProvinceName" AS state_province,
+        g."EnglishCountryRegionName" AS country,
+        g."PostalCode" AS postal_code
+      FROM aw_dw2019_ru.dbo."DimCustomer" c
+      JOIN aw_dw2019_ru.dbo."DimGeography" g
+        ON g."GeographyKey" = c."GeographyKey"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: customer_geography
+        title: География клиентов
+        levels: [country, state_province, city, postal_code, full_name]
+
+    dimensions:
+      - name: customer_key
+        title: Ключ клиента
+        sql: '{CUBE}."CustomerKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ клиента. Join-ключ FactInternetSales.CustomerKey.
+      - name: full_name
+        title: Клиент (ФИО)
+        sql: '{CUBE}."FirstName" || '' '' || COALESCE({CUBE}."MiddleName" || '' '', '''') || {CUBE}."LastName"'
+        type: string
+        description: 'Полное имя: First [Middle] Last. Уровень иерархии «География клиентов» (возможны редкие однофамильцы-полные тёзки — сверяйте по customer_key).'
+      - name: customer_alternate_key
+        title: Натуральный ключ клиента
+        sql: '{CUBE}."CustomerAlternateKey"'
+        type: string
+        description: Натуральный идентификатор клиента (AW00000001).
+      - name: title
+        title: Обращение
+        sql: '{CUBE}."Title"'
+        type: string
+        description: Обращение (Mr., Mrs., Ms.).
+      - name: gender
+        title: Пол
+        sql: '{CUBE}."Gender"'
+        type: string
+        description: 'M / F.'
+      - name: marital_status
+        title: Семейное положение
+        sql: '{CUBE}."MaritalStatus"'
+        type: string
+        description: 'S (single) / M (married).'
+      - name: yearly_income
+        title: Годовой доход
+        sql: '{CUBE}."YearlyIncome"'
+        type: number
+        description: Годовой доход домохозяйства, USD (диапазоны 10 000 … 170 000).
+      - name: education
+        title: Образование
+        sql: '{CUBE}."EnglishEducation"'
+        type: string
+        description: Уровень образования (Partial High School … Graduate Degree).
+      - name: occupation
+        title: Занятость
+        sql: '{CUBE}."EnglishOccupation"'
+        type: string
+        description: Род занятий (Clerical, Management, Professional, Skilled Manual, Manual).
+      - name: total_children
+        title: Детей всего
+        sql: '{CUBE}."TotalChildren"'
+        type: number
+        description: Число детей в домохозяйстве 0–5.
+      - name: children_at_home
+        title: Детей дома
+        sql: '{CUBE}."NumberChildrenAtHome"'
+        type: number
+        description: Число детей, живущих дома, 0–5.
+      - name: house_owner
+        title: Свой дом
+        sql: '{CUBE}."HouseOwnerFlag"'
+        type: string
+        description: '1 — собственный дом, 0 — аренда.'
+      - name: number_cars_owned
+        title: Автомобилей
+        sql: '{CUBE}."NumberCarsOwned"'
+        type: number
+        description: Число автомобилей семьи 0–4.
+      - name: commute_distance
+        title: Дистанция до работы
+        sql: '{CUBE}."CommuteDistance"'
+        type: string
+        description: Диапазон удалённости работы от дома (0-1 Miles … 10+ Miles).
+      - name: email_address
+        title: E-mail
+        sql: '{CUBE}."EmailAddress"'
+        type: string
+        description: Адрес электронной почты (логин@adventure-works.com).
+      - name: address_line1
+        title: Адрес (строка 1)
+        sql: '{CUBE}."AddressLine1"'
+        type: string
+        description: Улица/дом клиента.
+      - name: phone
+        title: Телефон
+        sql: '{CUBE}."Phone"'
+        type: string
+        description: Телефон (xxx) xxx-xxxx.
+      - name: birth_date
+        title: Дата рождения
+        sql: '{CUBE}."BirthDate"'
+        type: time
+        description: Дата рождения клиента.
+      - name: date_first_purchase
+        title: Первая покупка
+        sql: '{CUBE}."DateFirstPurchase"'
+        type: time
+        description: Дата первой покупки клиента.
+      - name: city
+        title: Город
+        sql: '{CUBE}.city'
+        type: string
+        description: Город клиента (из DimGeography). Уровень иерархии «География клиентов».
+      - name: state_province
+        title: Штат/провинция
+        sql: '{CUBE}.state_province'
+        type: string
+        description: Штат/провинция (из DimGeography). Уровень иерархии «География клиентов».
+      - name: country
+        title: Страна
+        sql: '{CUBE}.country'
+        type: string
+        description: Страна (English, из DimGeography). Уровень иерархии «География клиентов».
+      - name: postal_code
+        title: Индекс
+        sql: '{CUBE}.postal_code'
+        type: string
+        description: Почтовый индекс (из DimGeography). Уровень иерархии «География клиентов».

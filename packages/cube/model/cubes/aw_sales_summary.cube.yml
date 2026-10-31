@@ -1,0 +1,232 @@
+# Сводные продажи: Internet + Reseller (аналог named query FactSalesSummary
+# и измерения Sales Channel в SSAS). UNION ALL прямо в sql куба — без записи
+# в read-only duckdb ( отклонение от §7 «DuckDB-views», упрощение).
+cubes:
+  - name: aw_sales_summary
+    title: Сводные продажи (все каналы)
+    description: |
+      Объединённый факт продаж: интернет + опт, одна строка — позиция заказа.
+      Канал — размер sales_channel (Internet/Reseller; аналог измерения
+      Sales Channel в SSAS, где существовал и Total — здесь итог по обоим).
+      Grain: (sales_channel, sales_order_number, sales_order_line_number).
+      Контроль Ф9: суммы каналов == суммам aw_internet_sales/aw_reseller_sales.
+      Соответствие SSAS: MG Sales Summary + Sales Orders.
+    sql: |
+      SELECT
+        'Internet'::VARCHAR AS sales_channel,
+        "ProductKey", "OrderDateKey", "DueDateKey", "ShipDateKey", NULL::INTEGER AS "EmployeeKey",
+        NULL::INTEGER AS "ResellerKey", "PromotionKey", "CurrencyKey", "SalesTerritoryKey",
+        "SalesOrderNumber", "SalesOrderLineNumber", "RevisionNumber",
+        "OrderQuantity", "UnitPrice", "ExtendedAmount", "UnitPriceDiscountPct",
+        NULL::DOUBLE AS "DiscountAmount", "ProductStandardCost", "TotalProductCost",
+        "SalesAmount", "TaxAmt", "Freight", "CarrierTrackingNumber", "CustomerPONumber"
+      FROM aw_dw2019_ru.dbo."FactInternetSales"
+      UNION ALL
+      SELECT
+        'Reseller'::VARCHAR,
+        "ProductKey", "OrderDateKey", "DueDateKey", "ShipDateKey", "EmployeeKey",
+        "ResellerKey", "PromotionKey", "CurrencyKey", "SalesTerritoryKey",
+        "SalesOrderNumber", "SalesOrderLineNumber", "RevisionNumber",
+        "OrderQuantity", "UnitPrice", "ExtendedAmount", "UnitPriceDiscountPct",
+        "DiscountAmount", "ProductStandardCost", "TotalProductCost",
+        "SalesAmount", "TaxAmt", "Freight", "CarrierTrackingNumber", "CustomerPONumber"
+      FROM aw_dw2019_ru.dbo."FactResellerSales"
+
+    joins:
+      - name: aw_dim_product
+        sql: '{CUBE}."ProductKey" = {aw_dim_product}."ProductKey"'
+        relationship: many_to_one
+      - name: aw_dim_employee
+        sql: '{CUBE}."EmployeeKey" = {aw_dim_employee}."EmployeeKey"'
+        relationship: many_to_one
+      - name: aw_dim_reseller
+        sql: '{CUBE}."ResellerKey" = {aw_dim_reseller}."ResellerKey"'
+        relationship: many_to_one
+      - name: aw_dim_promotion
+        sql: '{CUBE}."PromotionKey" = {aw_dim_promotion}."PromotionKey"'
+        relationship: many_to_one
+      - name: aw_dim_currency
+        sql: '{CUBE}."CurrencyKey" = {aw_dim_currency}."CurrencyKey"'
+        relationship: many_to_one
+      - name: aw_dim_sales_territory
+        sql: '{CUBE}."SalesTerritoryKey" = {aw_dim_sales_territory}."SalesTerritoryKey"'
+        relationship: many_to_one
+      - name: aw_date_order
+        sql: '{CUBE}."OrderDateKey" = {aw_date_order}."DateKey"'
+        relationship: many_to_one
+      - name: aw_date_due
+        sql: '{CUBE}."DueDateKey" = {aw_date_due}."DateKey"'
+        relationship: many_to_one
+      - name: aw_date_ship
+        sql: '{CUBE}."ShipDateKey" = {aw_date_ship}."DateKey"'
+        relationship: many_to_one
+
+    hierarchies:
+      - name: sales_orders
+        title: Заказы (все каналы)
+        levels: [sales_channel, sales_order_number, sales_order_line_number]
+
+    measures:
+      - name: sales_amount
+        title: Сумма продаж (все каналы)
+        sql: '{CUBE}."SalesAmount"'
+        type: sum
+        format: currency
+        description: |
+          Нетто-сумма по обоим каналам, USD. Итог = интернет + опт
+          (Ф9-контроль: 29 358 677.2207 + 80 450 596.9823 = 109 809 274.2030).
+          SSAS: [Sales Amount] MG=Sales Summary.
+      - name: order_quantity
+        title: Количество (все каналы)
+        sql: '{CUBE}."OrderQuantity"'
+        type: sum
+        format: number
+        description: "Суммарное количество единиц, шт. SSAS: [Order Quantity] MG=Sales Summary."
+      - name: extended_amount
+        title: Сумма до скидки (все каналы)
+        sql: '{CUBE}."ExtendedAmount"'
+        type: sum
+        format: currency
+        description: "Цена × количество до скидки, USD. SSAS: [Extended Amount] MG=Sales Summary."
+      - name: discount_amount
+        title: Скидка (все каналы)
+        sql: '{CUBE}."DiscountAmount"'
+        type: sum
+        format: currency
+        description: Сумма скидок; NULL в интернет-канале (там скидки нет), заполнено в опте. SSAS-эквивалента в Sales Summary нет — мера удобства.
+      - name: tax_amount
+        title: Налог (все каналы)
+        sql: '{CUBE}."TaxAmt"'
+        type: sum
+        format: currency
+        description: "Сумма налога, USD. SSAS: [Tax Amount] MG=Sales Summary."
+      - name: freight_cost
+        title: Доставка (все каналы)
+        sql: '{CUBE}."Freight"'
+        type: sum
+        format: currency
+        description: "Стоимость доставки, USD. SSAS: [Freight Cost] MG=Sales Summary."
+      - name: standard_product_cost
+        title: Стандартная себестоимость (все каналы)
+        sql: '{CUBE}."ProductStandardCost"'
+        type: sum
+        format: currency
+        description: "Стандартная себестоимость, USD. SSAS: [Standard Product Cost] MG=Sales Summary."
+      - name: total_product_cost
+        title: Полная себестоимость (все каналы)
+        sql: '{CUBE}."TotalProductCost"'
+        type: sum
+        format: currency
+        description: "Себестоимость с накладными, USD. SSAS: [Total Product Cost] MG=Sales Summary."
+      - name: unit_price
+        title: Цена за единицу (все каналы, сумма)
+        sql: '{CUBE}."UnitPrice"'
+        type: sum
+        format: currency
+        description: СУММА цен позиций, USD — SSAS-эквивалент [Unit Price] (Sum); вне grain строки малополезна.
+      - name: transaction_count
+        title: Транзакций (все каналы)
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: count
+        format: number
+        description: "Число строк-позиций (60 398 + 60 855 = 121 253). SSAS: [Transaction Count] MG=Sales Summary."
+      - name: order_count
+        title: Заказов (все каналы)
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: count_distinct
+        format: number
+        description: "Число уникальных заказов; номера SO##### сквозные между каналами. SSAS: [Order Count] MG=Sales Orders."
+      - name: gross_profit
+        title: Валовая прибыль (все каналы)
+        sql: '{CUBE}."SalesAmount" - {CUBE}."TotalProductCost"'
+        type: sum
+        format: currency
+        description: "SalesAmount − TotalProductCost по обоим каналам, USD. SSAS: [Gross Profit] MG=Sales Summary (calculated)."
+      - name: gross_profit_margin
+        title: Валовая маржа, % (все каналы)
+        sql: '{CUBE.gross_profit} / NULLIF({CUBE.sales_amount}, 0)'
+        type: number
+        format: percent
+        description: "Доля валовой прибыли в выручке. Деление мер, корректно на любом срезе. SSAS: [Gross Profit Margin] (calculated)."
+      - name: avg_unit_price
+        title: Средняя цена единицы (все каналы)
+        sql: '{CUBE.unit_price} / NULLIF({CUBE.transaction_count}, 0)'
+        type: number
+        format: currency
+        description: "Σ(UnitPrice) / число строк, USD. SSAS: [Average Unit Price] MG=Sales Summary (calculated)."
+      - name: avg_sales_amount
+        title: Средняя сумма заказа (все каналы)
+        sql: '{CUBE.sales_amount} / NULLIF({CUBE.order_count}, 0)'
+        type: number
+        format: currency
+        description: "Выручка / число заказов, USD. SSAS: [Average Sales Amount] (calculated)."
+
+    dimensions:
+      - name: sales_channel
+        title: Канал продаж
+        sql: sales_channel
+        type: string
+        primary_key: true
+        description: 'Internet / Reseller (аналог измерения Sales Channel в SSAS).'
+      - name: sales_order_number
+        title: Номер заказа
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: string
+        primary_key: true
+        description: Номер заказа SO#####. Часть grain.
+      - name: sales_order_line_number
+        title: Строка заказа
+        sql: '{CUBE}."SalesOrderLineNumber"'
+        type: number
+        primary_key: true
+        description: Номер позиции. Часть grain.
+      - name: revision_number
+        title: Ревизия заказа
+        sql: '{CUBE}."RevisionNumber"'
+        type: number
+        description: Номер редакции заказа.
+      - name: carrier_tracking_number
+        title: Трек-номер
+        sql: '{CUBE}."CarrierTrackingNumber"'
+        type: string
+        description: Трек-номер перевозчика.
+      - name: customer_po_number
+        title: PO клиента
+        sql: '{CUBE}."CustomerPONumber"'
+        type: string
+        description: Номер PO.
+      - name: product_key
+        title: Ключ товара
+        sql: '{CUBE}."ProductKey"'
+        type: number
+        description: FK → aw_dim_product.
+      - name: employee_key
+        title: Ключ сотрудника
+        sql: '{CUBE}."EmployeeKey"'
+        type: number
+        description: FK → aw_dim_employee; NULL в интернет-канале (разрез оставит только опт).
+      - name: reseller_key
+        title: Ключ дилера
+        sql: '{CUBE}."ResellerKey"'
+        type: number
+        description: FK → aw_dim_reseller; NULL в интернет-канале.
+      - name: promotion_key
+        title: Ключ акции
+        sql: '{CUBE}."PromotionKey"'
+        type: number
+        description: FK → aw_dim_promotion.
+      - name: currency_key
+        title: Ключ валюты
+        sql: '{CUBE}."CurrencyKey"'
+        type: number
+        description: FK → aw_dim_currency.
+      - name: sales_territory_key
+        title: Ключ территории
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        description: FK → aw_dim_sales_territory.
+      - name: order_date_key
+        title: Ключ даты заказа
+        sql: '{CUBE}."OrderDateKey"'
+        type: number
+        description: DateKey заказа (join aw_date_order / aw_dim_date).

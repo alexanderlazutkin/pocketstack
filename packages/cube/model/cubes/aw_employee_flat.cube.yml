@@ -1,0 +1,84 @@
+# Сотрудники: flatten parent-child (closure). Прода жи дилеров по орг-лестнице:
+# каждая строка факта (предагрегирована по продавцу) размножается на всех
+# предков по ParentEmployeeKey. Весов нет (унарных операторов у Employee нет).
+cubes:
+  - name: aw_employee_flat
+    title: Орг-лестница сотрудников (flatten)
+    description: |
+      Оптовые продажи, развёрнутые по организационной лестнице сотрудников AW
+      (parent-child по ParentEmployeeKey; замыкает CEO). Каждая строка —
+      (продавец-лист, предок, факт): продажи продавца попадают всем его
+      руководителям. Меры: reseller_sales_amount — итог узла (сумма продаж
+      всех подчинённых + своих); reseller_sales_leaf — только собственные
+      продажи узла (depth=0). Grain строки: (employee_key, ancestor_key,
+      факт-строка опта). Срез по (ancestor_key) — «продажи менеджера с командой».
+    sql: |
+      WITH RECURSIVE emp AS (
+        SELECT "EmployeeKey" AS k, "ParentEmployeeKey" AS p
+        FROM aw_dw2019_ru.dbo."DimEmployee"
+      ), sales AS (
+        SELECT "EmployeeKey" AS k,
+               SUM("SalesAmount") AS amt,
+               SUM("SalesAmount" - "TotalProductCost") AS gp,
+               COUNT(DISTINCT "SalesOrderNumber") AS orders
+        FROM aw_dw2019_ru.dbo."FactResellerSales"
+        GROUP BY 1
+      ), cl AS (
+        SELECT k AS employee_key, k AS ancestor_key, 0 AS depth
+        FROM emp
+        UNION ALL
+        SELECT c.employee_key, e.p, c.depth + 1
+        FROM cl c JOIN emp e ON e.k = c.ancestor_key
+        WHERE e.p IS NOT NULL
+      )
+      SELECT
+        cl.employee_key, cl.ancestor_key, cl.depth,
+        COALESCE(s.amt, 0) AS reseller_amount,
+        COALESCE(s.gp, 0) AS reseller_gross_profit,
+        COALESCE(s.orders, 0) AS orders
+      FROM cl LEFT JOIN sales s ON s.k = cl.employee_key
+    joins:
+      - name: aw_dim_employee
+        sql: '{CUBE}.ancestor_key = {aw_dim_employee}."EmployeeKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: reseller_sales_amount
+        title: Продажи узла (с командой)
+        sql: reseller_amount
+        type: sum
+        format: currency
+        description: |
+          Оптовая выручка узла: собственные продажи + все подчинённые
+          (унарных операторов нет — простая сумма). Срезайте по ancestor_key.
+          Без среза — двойной счёт (строки размножены по предкам).
+      - name: reseller_gross_profit
+        title: Валовая прибыль узла
+        sql: reseller_gross_profit
+        type: sum
+        format: currency
+        description: Валовая прибыль узла с командой, USD.
+      - name: orders_count
+        title: Заказов узла
+        sql: orders
+        type: sum
+        description: Число заказов узла с командой (Σ DC-заказчиков листьев).
+
+    dimensions:
+      - name: employee_key
+        title: Продавец-лист (ключ)
+        sql: employee_key
+        type: number
+        primary_key: true
+        description: Ключ сотрудника-листа (чья это продажа).
+      - name: ancestor_key
+        title: Узел лестницы (ключ)
+        sql: ancestor_key
+        type: number
+        primary_key: true
+        description: Ключ узла-предка; срез по нему = «итог менеджера с командой». Имя — через join aw_dim_employee.
+      - name: depth
+        title: Глубина от листа
+        sql: depth
+        type: number
+        description: 0 — собственные продажи узла, 1+ — уровни руководителей вверх.

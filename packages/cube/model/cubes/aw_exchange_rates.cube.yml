@@ -1,0 +1,74 @@
+# Курсы валют (FactCurrencyRate). MG SSAS: Exchange Rates.
+# Average Rate (AverageOfChildren) и End of Day Rate (LastNonEmpty) —
+# полуаддитивные; интерим Ф3: avg по строкам + raw-размер EOD.
+# Финальные меры (last EOD по дате, AverageOfChildren) — Ф5.
+cubes:
+  - name: aw_exchange_rates
+    title: Курсы валют
+    description: |
+      Факт ежедневных курсов к USD: одна строка — валюта × день.
+      Grain: (currency_key, date_key). Курсы AverageRate/EndOfDayRate —
+      «валюта → USD» (в SSAS пересчёт через Destination Currency; решение
+      2026-10-31 — фикс. USD, docs §4.3). Полуаддитивная семантика SSAS
+      (AverageOfChildren / LastNonEmpty) — Ф5; сейчас avg по строкам.
+      Соответствие SSAS: MG Exchange Rates.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."FactCurrencyRate"
+
+    joins:
+      - name: aw_dim_currency
+        sql: '{CUBE}."CurrencyKey" = {aw_dim_currency}."CurrencyKey"'
+        relationship: many_to_one
+      - name: aw_dim_date
+        sql: '{CUBE}."DateKey" = {aw_dim_date}."DateKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: average_rate_avg
+        title: Средний курс (avg)
+        sql: '{CUBE}."AverageRate"'
+        type: avg
+        description: |
+          Среднее по строкам (валюта×день) курса к USD. ⚠ не SSAS-эквивалент:
+          [Average Rate] в SSAS — AverageOfChildren (среднее по датам внутри
+          среза, суммирование по прочим измерениям); при разрезе днём совпадает,
+          на агрегатах дат — приближение.
+          SSAS: [Average Rate] MG=Exchange Rates (AverageOfChildren).
+      - name: last_end_of_day_rate
+        title: Последний курс на конец дня
+        sql: '(SELECT r2."EndOfDayRate" FROM aw_dw2019_ru.dbo."FactCurrencyRate" r2 WHERE r2."CurrencyKey" = {CUBE}."CurrencyKey" ORDER BY r2."DateKey" DESC LIMIT 1)'
+        type: max
+        description: |
+          Последний известный курс на конец дня (LastNonEmpty-эмуляция):
+          скалярный подзапрос argmax по DateKey внутри среза валюты.
+          СРЕЗАЙТЕ по aw_dim_currency — без среза мера = max по валютам
+          (технический артефакт агрегации, не интерпретируйте).
+          SSAS: [End of Day Rate] MG=Exchange Rates (LastNonEmpty).
+
+    dimensions:
+      - name: currency_key
+        title: Ключ валюты
+        sql: '{CUBE}."CurrencyKey"'
+        type: number
+        primary_key: true
+        description: FK → aw_dim_currency. Часть grain.
+      - name: date_key
+        title: Ключ даты
+        sql: '{CUBE}."DateKey"'
+        type: number
+        primary_key: true
+        description: FK → aw_dim_date. Часть grain.
+      - name: average_rate
+        title: Средний курс за день
+        sql: '{CUBE}."AverageRate"'
+        type: number
+        description: Средний курс валюта→USD за день (raw, не агрегируется).
+      - name: end_of_day_rate
+        title: Курс на конец дня
+        sql: '{CUBE}."EndOfDayRate"'
+        type: number
+        description: Курс на конец дня (LastNonEmpty в SSAS; здесь raw-размер строки, мера — Ф5).
+      - name: date
+        title: Дата
+        sql: '{CUBE}."Date"'
+        type: time
+        description: Календарная дата курса.

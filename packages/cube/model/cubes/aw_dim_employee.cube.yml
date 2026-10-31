@@ -1,0 +1,118 @@
+# Сотрудники (DimEmployee). Иерархия Employee Department (Department > Title >
+# Employee). Parent-child «организационная лестница» продаж — Ф6 (flatten).
+cubes:
+  - name: aw_dim_employee
+    title: Сотрудник
+    description: |
+      Измерение сотрудников AW (DimEmployee). Grain: сотрудник. 296 строк,
+      из них продавцы (SalesPersonFlag) — 17. Parent-child по
+      ParentEmployeeKey обрабатывается отдельно (Ф6, aw_employee_flat);
+      здесь — плоские атрибуты и иерархия Employee Department.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimEmployee"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: employee_department
+        title: Отдел и должность
+        levels: [department_name, title, full_name]
+
+    dimensions:
+      - name: employee_key
+        title: Ключ сотрудника
+        sql: '{CUBE}."EmployeeKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ сотрудника. Join-ключ FactResellerSales/FactSalesQuota.EmployeeKey.
+      - name: full_name
+        title: Сотрудник (ФИО)
+        sql: '{CUBE}."FirstName" || '' '' || COALESCE({CUBE}."MiddleName" || '' '', '''') || {CUBE}."LastName"'
+        type: string
+        description: Полное имя сотрудника. Уровень иерархии «Отдел и должность».
+      - name: title
+        title: Должность
+        sql: '{CUBE}."Title"'
+        type: string
+        description: Должность (Sales Representative, Purchasing Manager…). Уровень иерархии «Отдел и должность».
+      - name: department_name
+        title: Отдел
+        sql: '{CUBE}."DepartmentName"'
+        type: string
+        description: Название отдела (Sales, Purchasing, Production…). Уровень иерархии «Отдел и должность».
+      - name: parent_employee_key
+        title: Ключ руководителя
+        sql: '{CUBE}."ParentEmployeeKey"'
+        type: number
+        description: Ключ непосредственного руководителя (parent-child; NULL у CEO). Основа flatten-иерархии Ф6.
+      - name: sales_person_flag
+        title: Продавец
+        sql: '{CUBE}."SalesPersonFlag"'
+        type: boolean
+        description: TRUE — сотрудник участвует в продажах (квоты, Reseller Sales).
+      - name: current_flag
+        title: Работает
+        sql: '{CUBE}."CurrentFlag"'
+        type: boolean
+        description: TRUE — действуетующий сотрудник.
+      - name: sales_territory_key
+        title: Ключ территории
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        description: Территория продаж продавца (join к aw_dim_sales_territory).
+      - name: login_id
+        title: Логин
+        sql: '{CUBE}."LoginID"'
+        type: string
+        description: Корпоративный логин (adventure-works\…).
+      - name: email_address
+        title: E-mail
+        sql: '{CUBE}."EmailAddress"'
+        type: string
+        description: Рабочий адрес сотрудника.
+      - name: phone
+        title: Телефон
+        sql: '{CUBE}."Phone"'
+        type: string
+        description: Рабочий телефон.
+      - name: gender
+        title: Пол
+        sql: '{CUBE}."Gender"'
+        type: string
+        description: 'M / F.'
+      - name: marital_status
+        title: Семейное положение
+        sql: '{CUBE}."MaritalStatus"'
+        type: string
+        description: 'S / M.'
+      - name: salaried_flag
+        title: Оклад
+        sql: '{CUBE}."SalariedFlag"'
+        type: boolean
+        description: TRUE — на окладе (иначе почасовая).
+      - name: base_rate
+        title: Базовая ставка
+        sql: '{CUBE}."BaseRate"'
+        type: number
+        description: Базовая ставка оплаты, USD/ч или USD/период по PayFrequency.
+      - name: hire_date
+        title: Дата найма
+        sql: '{CUBE}."HireDate"'
+        type: time
+        description: Дата приёма на работу.
+      - name: birth_date
+        title: Дата рождения
+        sql: '{CUBE}."BirthDate"'
+        type: time
+        description: Дата рождения сотрудника.
+      - name: vacation_hours
+        title: Часы отпуска
+        sql: '{CUBE}."VacationHours"'
+        type: number
+        description: Накопленные часы отпуска.
+      - name: sick_leave_hours
+        title: Часы больничных
+        sql: '{CUBE}."SickLeaveHours"'
+        type: number
+        description: Накопленные часы больничных.

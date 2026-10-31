@@ -1,0 +1,78 @@
+# Организации: flatten parent-child + ВЕСОВАЯ унарная колонка.
+# В SSAS Organization unary operator = PercentageOfOwnership (числовой вес
+# 0–1: вклад дочерней организации = доля владения; NULL = '+', вес 1).
+cubes:
+  - name: aw_organization_flat
+    title: Организации (flatten + доли владения)
+    description: |
+      Финансовый факт, развёрнутый по parent-child иерархии организаций AW
+      с ВЕСОВОЙ свёрткой: в SSAS унарная колонка Organization —
+      PercentageOfOwnership (вклад ребёнка в родителя = доля владения;
+      NULL → 1). Каждая строка FactFinance (по организации-листу)
+      размножается на предков с кумулятивным весом = Π долей пути.
+      Меры: amount_weighted (взвешенный итог узла), amount_leaf
+      (depth=0, без размножения). Grain: (organization_key, ancestor_key,
+      факт-строка). ⚠ не SSAS-эквивалент на 100%: SSAS применяет веса
+      только к не-листовым свёрткам, здесь вес применяется на каждом шаге
+      вверх (у листа без родительской доли вес 1 — совпадает).
+    sql: |
+      WITH RECURSIVE org AS (
+        SELECT "OrganizationKey" AS k, "ParentOrganizationKey" AS p,
+               COALESCE("PercentageOfOwnership", 1.0) AS w
+        FROM aw_dw2019_ru.dbo."DimOrganization"
+      ), fin AS (
+        SELECT "OrganizationKey" AS k, "Amount" AS amt
+        FROM aw_dw2019_ru.dbo."FactFinance"
+      ), cl AS (
+        SELECT k AS organization_key, k AS ancestor_key, 0 AS depth, 1.0 AS weight
+        FROM org
+        UNION ALL
+        SELECT c.organization_key, o.p, c.depth + 1, c.weight * o.w
+        FROM cl c JOIN org o ON o.k = c.ancestor_key
+        WHERE o.p IS NOT NULL
+      )
+      SELECT
+        cl.organization_key, cl.ancestor_key, cl.depth, cl.weight,
+        f.amt AS amount, cl.weight * f.amt AS weighted_amount
+      FROM cl JOIN fin f ON f.k = cl.organization_key
+    joins: []
+
+    measures:
+      - name: amount_weighted
+        title: Итог организации (взвешенно)
+        sql: weighted_amount
+        type: sum
+        format: currency
+        description: |
+          SUM(Π долей владения · Amount) — взвешенный итог узла.
+          Срезайте по ancestor_key; без среза — двойной счёт.
+      - name: amount_leaf
+        title: Сумма листа
+        sql: 'CASE WHEN {CUBE}.depth = 0 THEN amount END'
+        type: sum
+        format: currency
+        description: Сумма Amount на depth=0 (своя организация, без размножения).
+
+    dimensions:
+      - name: organization_key
+        title: Организация-лист (ключ)
+        sql: organization_key
+        type: number
+        primary_key: true
+        description: Ключ организации-листа строки факта.
+      - name: ancestor_key
+        title: Узел (ключ)
+        sql: ancestor_key
+        type: number
+        primary_key: true
+        description: "Ключ узла-предка (срез итога). Имя: DimOrganization.OrganizationName."
+      - name: depth
+        title: Глубина от листа
+        sql: depth
+        type: number
+        description: 0 — лист, 1+ — вверх по холдингу.
+      - name: weight
+        title: Вес пути
+        sql: weight
+        type: number
+        description: Кумулятивная доля владения по пути лист→узел.

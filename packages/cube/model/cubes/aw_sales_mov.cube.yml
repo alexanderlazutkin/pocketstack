@@ -1,0 +1,138 @@
+# Отклонения выручки AW по месяцам × канал (паттерн sales_mov).
+# Реализует SSAS calculated members: YoY Revenue Growth + Growth in Customer Base.
+# Сдвиг месяца — непрерывный ym = year*12 + month (LAG/self-join по ym±N).
+cubes:
+  - name: aw_sales_mov
+    title: Отклонения выручки AW (MoM/YoY)
+    description: |
+      Помесячная выручка по каналам (Internet/Reseller) с отклонениями YoY
+      (к тому же месяцу прошлого года) и PoP (к предыдущему месяцу), плюс
+      рост клиентской базы интернет-канала (DC клиентов месяц к месяцу год назад).
+      Логика в семантическом слое (подзапрос при каждом запросе), паттерн
+      pocketstack sales_mov. Grain: (channel, ym). Сдвиг — по непрерывному
+      ym = year*12 + month: ly.ym = ym−12, prev.ym = ym−1.
+      Соответствие SSAS: [YoY Revenue Growth] + [Growth in Customer Base]
+      (calculated members MDX-скрипта).
+    sql: |
+      WITH m AS (
+        SELECT 'Internet'::VARCHAR AS channel,
+               d."CalendarYear" AS year, d."MonthNumberOfYear" AS month,
+               SUM(f."SalesAmount") AS revenue,
+               COUNT(DISTINCT f."CustomerKey") AS customers
+        FROM aw_dw2019_ru.dbo."FactInternetSales" f
+        JOIN aw_dw2019_ru.dbo."DimDate" d ON d."DateKey" = f."OrderDateKey"
+        GROUP BY 1, 2, 3
+        UNION ALL
+        SELECT 'Reseller'::VARCHAR,
+               d."CalendarYear", d."MonthNumberOfYear",
+               SUM(f."SalesAmount"), NULL::BIGINT
+        FROM aw_dw2019_ru.dbo."FactResellerSales" f
+        JOIN aw_dw2019_ru.dbo."DimDate" d ON d."DateKey" = f."OrderDateKey"
+        GROUP BY 1, 2, 3
+      )
+      SELECT
+        cur.channel, cur.year, cur.month, cur.year * 100 + cur.month AS ym,
+        cur.revenue, cur.customers,
+        ly.revenue   AS revenue_ly,
+        prev.revenue AS revenue_pop,
+        ly.customers AS customers_ly,
+        cur.revenue - ly.revenue AS abs_yoy,
+        CASE WHEN ly.revenue IS NULL OR ly.revenue = 0 THEN NULL
+             ELSE 100.0 * (cur.revenue - ly.revenue) / ly.revenue END AS rel_yoy,
+        cur.revenue - prev.revenue AS abs_pop,
+        CASE WHEN prev.revenue IS NULL OR prev.revenue = 0 THEN NULL
+             ELSE 100.0 * (cur.revenue - prev.revenue) / prev.revenue END AS rel_pop,
+        CASE WHEN ly.customers IS NULL OR ly.customers = 0 THEN NULL
+             ELSE 100.0 * (cur.customers - ly.customers) / ly.customers END AS customer_growth_pct
+      FROM m cur
+      LEFT JOIN m ly   ON ly.channel = cur.channel   AND ly.year * 12 + ly.month = cur.year * 12 + cur.month - 12
+      LEFT JOIN m prev ON prev.channel = cur.channel AND prev.year * 12 + prev.month = cur.year * 12 + cur.month - 1
+    joins: []
+
+    measures:
+      - name: revenue
+        title: Выручка месяца
+        sql: revenue
+        type: sum
+        format: currency
+        description: Сумма месячной выручки канала(ов) за период, USD. При разрезке по (channel, ym) — один месяц.
+      - name: abs_yoy_sum
+        title: Сумма абс. отклонений YoY
+        sql: abs_yoy
+        type: sum
+        format: currency
+        description: Σ месячных абсолютных отклонений к прошлому году, USD.
+      - name: rel_yoy_avg
+        title: Среднее отклонение YoY
+        sql: rel_yoy
+        type: avg
+        description: Среднее месячное относительное отклонение к прошлому году, п.п.
+
+    dimensions:
+      - name: ym
+        title: Месяц (YYYYMM)
+        sql: "{CUBE}.ym"
+        type: number
+        primary_key: true
+        description: Суррогат месяца YYYYMM (201107 = июль 2011), сортируется хронологически.
+      - name: channel
+        title: Канал
+        sql: channel
+        type: string
+        primary_key: true
+        description: Internet / Reseller.
+      - name: year
+        title: Год
+        sql: year
+        type: number
+        description: Календарный год месяца (по дате заказа).
+      - name: month
+        title: Месяц
+        sql: month
+        type: number
+        description: Номер месяца 1–12.
+      - name: revenue_ly
+        title: Выручка год назад
+        sql: revenue_ly
+        type: number
+        description: Выручка того же месяца прошлого года, USD.
+      - name: revenue_pop
+        title: Выручка предыдущего месяца
+        sql: revenue_pop
+        type: number
+        description: Выручка предыдущего месяца (январь — против декабря прошлого года), USD.
+      - name: abs_yoy
+        title: Абс. отклонение YoY
+        sql: abs_yoy
+        type: number
+        description: revenue − revenue_ly, USD.
+      - name: rel_yoy
+        title: Отклонение YoY, %
+        sql: rel_yoy
+        type: number
+        description: 100×(revenue − revenue_ly)/revenue_ly, п.п.
+      - name: abs_pop
+        title: Абс. отклонение PoP
+        sql: abs_pop
+        type: number
+        description: revenue − revenue_pop, USD.
+      - name: rel_pop
+        title: Отклонение PoP, %
+        sql: rel_pop
+        type: number
+        description: 100×(revenue − revenue_pop)/revenue_pop, п.п.
+      - name: customers
+        title: Клиентов в месяце
+        sql: customers
+        type: number
+        description: DC клиентов интернет-канала в месяце (опт — NULL).
+      - name: customers_ly
+        title: Клиентов год назад
+        sql: customers_ly
+        type: number
+        description: DC клиентов того же месяца прошлого года (интернет).
+      - name: customer_growth_pct
+        title: Рост клиентской базы, %
+        sql: customer_growth_pct
+        type: number
+        description: 100×(customers − customers_ly)/customers_ly, п.п. (SSAS [Growth in Customer Base], только интернет).

@@ -1,0 +1,142 @@
+# Доли выручки по иерархии Product Categories (аналог SSAS calculated members
+# Ratio to All Products / Ratio to Parent Products). Три уровня в одной таблице
+# (category/subcategory/product) с окнами по родительскому scope своего уровня.
+cubes:
+  - name: aw_product_ratios
+    title: Доли товаров в выручке
+    description: |
+      Выручка и доли элементов иерархии Product Categories (категория >
+      подкатегория > товар) по каналам: ratio_to_all (доля в общей выручке) и
+      ratio_to_parent (доля в родителе: категория — от всей выручки,
+      подкатегория — от категории, товар — от подкатегории). Факты
+      предагрегированы по товару в CTE (анти-фанаут). Grain: (level, member).
+      Соответствие SSAS: [Ratio to All Products] / [Ratio to Parent Product]
+      (Internet/Reseller/Summary — колонки internet/reseller/total).
+    sql: |
+      WITH ii AS (
+        SELECT "ProductKey", SUM("SalesAmount") AS a,
+               SUM("SalesAmount" - "TotalProductCost") AS gp
+        FROM aw_dw2019_ru.dbo."FactInternetSales" GROUP BY 1
+      ), rr AS (
+        SELECT "ProductKey", SUM("SalesAmount") AS a,
+               SUM("SalesAmount" - "TotalProductCost") AS gp
+        FROM aw_dw2019_ru.dbo."FactResellerSales" GROUP BY 1
+      ), base AS (
+        SELECT
+          p."ProductKey" AS pk,
+          COALESCE(c."EnglishProductCategoryName", 'Без категории') AS category,
+          COALESCE(s."EnglishProductSubcategoryName", 'Без подкатегории') AS subcategory,
+          p."EnglishProductName" AS product,
+          COALESCE(i.a, 0) AS inet, COALESCE(r.a, 0) AS res,
+          COALESCE(i.gp, 0) AS inet_gp, COALESCE(r.gp, 0) AS res_gp,
+          COALESCE(i.a, 0) + COALESCE(r.a, 0) AS amt,
+          COALESCE(i.gp, 0) + COALESCE(r.gp, 0) AS gp
+        FROM aw_dw2019_ru.dbo."DimProduct" p
+        LEFT JOIN aw_dw2019_ru.dbo."DimProductSubcategory" s
+          ON s."ProductSubcategoryKey" = p."ProductSubcategoryKey"
+        LEFT JOIN aw_dw2019_ru.dbo."DimProductCategory" c
+          ON c."ProductCategoryKey" = s."ProductCategoryKey"
+        LEFT JOIN ii i ON i."ProductKey" = p."ProductKey"
+        LEFT JOIN rr r ON r."ProductKey" = p."ProductKey"
+      ), lvl AS (
+        SELECT 'product'::VARCHAR AS level, pk::VARCHAR AS member_key,
+               product AS member, category, subcategory, amt, inet, res, gp,
+               inet_gp, res_gp
+        FROM base
+        UNION ALL
+        SELECT 'subcategory', 'S:' || subcategory, subcategory, category, subcategory,
+               SUM(amt), SUM(inet), SUM(res), SUM(gp), SUM(inet_gp), SUM(res_gp)
+        FROM base GROUP BY 1, 2, 3, 4
+        UNION ALL
+        SELECT 'category', 'C:' || category, category, category, NULL::VARCHAR,
+               SUM(amt), SUM(inet), SUM(res), SUM(gp), SUM(inet_gp), SUM(res_gp)
+        FROM base GROUP BY 1, 2, 3, 4
+      )
+      SELECT
+        level, member_key, member, category, subcategory, amt, inet, res,
+        gp, inet_gp, res_gp,
+        amt / NULLIF(SUM(amt) OVER (PARTITION BY level), 0) AS ratio_to_all,
+        CASE level
+          WHEN 'category'    THEN amt / NULLIF(SUM(amt) OVER (PARTITION BY level), 0)
+          WHEN 'subcategory' THEN amt / NULLIF(SUM(CASE WHEN level = 'subcategory' THEN amt END) OVER (PARTITION BY category), 0)
+          ELSE                    amt / NULLIF(SUM(CASE WHEN level = 'product'    THEN amt END) OVER (PARTITION BY subcategory), 0)
+        END AS ratio_to_parent
+      FROM lvl
+    joins: []
+
+    measures:
+      - name: amount
+        title: Выручка элемента
+        sql: amt
+        type: sum
+        format: currency
+        description: "Выручка элемента уровня (категории/подкатегории/товара), USD: total = интернет + опт."
+      - name: internet_amount
+        title: Выручка (интернет)
+        sql: inet
+        type: sum
+        format: currency
+        description: Интернет-часть выручки элемента, USD.
+      - name: reseller_amount
+        title: Выручка (опт)
+        sql: res
+        type: sum
+        format: currency
+        description: Оптовая часть выручки элемента, USD.
+      - name: gross_profit
+        title: Валовая прибыль элемента
+        sql: gp
+        type: sum
+        format: currency
+        description: Валовая прибыль (выручка − полная себестоимость) элемента, USD.
+      - name: internet_gross_profit
+        title: Валовая прибыль (интернет)
+        sql: inet_gp
+        type: sum
+        format: currency
+        description: Интернет-часть валовой прибыли, USD.
+      - name: reseller_gross_profit
+        title: Валовая прибыль (опт)
+        sql: res_gp
+        type: sum
+        format: currency
+        description: Оптовая часть валовой прибыли, USD.
+
+    dimensions:
+      - name: level
+        title: Уровень иерархии
+        sql: level
+        type: string
+        primary_key: true
+        description: 'category / subcategory / product — уровень элемента.'
+      - name: member_key
+        title: Ключ элемента
+        sql: member_key
+        type: string
+        primary_key: true
+        description: 'Уникальный ключ строки: ProductKey для товаров, «S:»/«C:» префиксы для подкатегорий/категорий.'
+      - name: member
+        title: Элемент
+        sql: member
+        type: string
+        description: Название категории/подкатегории/товара.
+      - name: category
+        title: Категория
+        sql: category
+        type: string
+        description: Родительская категория.
+      - name: subcategory
+        title: Подкатегория
+        sql: subcategory
+        type: string
+        description: Родительская подкатегория (NULL у строк категорий).
+      - name: ratio_to_all
+        title: Доля в общей выручке
+        sql: ratio_to_all
+        type: number
+        description: amt / Σ(уровня), доля (0.42 = 42%). Аналог SSAS [Ratio to All Products].
+      - name: ratio_to_parent
+        title: Доля в родителе
+        sql: ratio_to_parent
+        type: number
+        description: "amt / Σ(родительского scope): товар — от подкатегории, подкатегория — от категории, категория — от всей выручки. Аналог SSAS [Ratio to Parent Product]."

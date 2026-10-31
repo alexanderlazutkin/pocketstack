@@ -1,0 +1,74 @@
+# Отделы: flatten parent-child DimDepartmentGroup (без операторов, простая
+# свёртка). Факт FactFinance по DepartmentGroupKey.
+cubes:
+  - name: aw_department_flat
+    title: Отделы (flatten)
+    description: |
+      Финансовый факт, развёрнутый по parent-child иерархии отделов AW
+      (DimDepartmentGroup). Операторов нет — простая сумма подчинённых.
+      Меры: amount (итог узла, срез по ancestor_key), amount_leaf
+      (depth=0). Grain: (department_key, ancestor_key, факт-строка).
+    sql: |
+      WITH RECURSIVE dep AS (
+        SELECT "DepartmentGroupKey" AS k, "ParentDepartmentGroupKey" AS p,
+               "DepartmentGroupName" AS name
+        FROM aw_dw2019_ru.dbo."DimDepartmentGroup"
+      ), fin AS (
+        SELECT "DepartmentGroupKey" AS k, "Amount" AS amt
+        FROM aw_dw2019_ru.dbo."FactFinance"
+      ), cl AS (
+        SELECT k AS department_key, k AS ancestor_key, 0 AS depth
+        FROM dep
+        UNION ALL
+        SELECT c.department_key, d.p, c.depth + 1
+        FROM cl c JOIN dep d ON d.k = c.ancestor_key
+        WHERE d.p IS NOT NULL
+      )
+      SELECT
+        cl.department_key, cl.ancestor_key, cl.depth,
+        dep2.name AS department_name,
+        f.amt AS amount
+      FROM cl
+      JOIN dep dep2 ON dep2.k = cl.ancestor_key
+      JOIN fin f ON f.k = cl.department_key
+    joins: []
+
+    measures:
+      - name: amount
+        title: Итог отдела (с подотделами)
+        sql: amount
+        type: sum
+        format: currency
+        description: |
+          Сумма Amount узла с подотделами. Срезайте по ancestor_key;
+          без среза — двойной счёт.
+      - name: amount_leaf
+        title: Сумма отдела (лист)
+        sql: 'CASE WHEN {CUBE}.depth = 0 THEN amount END'
+        type: sum
+        format: currency
+        description: Сумма Amount на depth=0 (свой отдел).
+
+    dimensions:
+      - name: department_key
+        title: Отдел-лист (ключ)
+        sql: department_key
+        type: number
+        primary_key: true
+        description: Ключ отдела-листа строки факта.
+      - name: ancestor_key
+        title: Узел (ключ)
+        sql: ancestor_key
+        type: number
+        primary_key: true
+        description: Ключ узла-предка (срез итога).
+      - name: ancestor_name
+        title: Узел (название)
+        sql: department_name
+        type: string
+        description: Название отдела-узла.
+      - name: depth
+        title: Глубина от листа
+        sql: depth
+        type: number
+        description: 0 — лист, 1+ — вверх.

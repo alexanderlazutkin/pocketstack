@@ -1,0 +1,146 @@
+# РОЛЕВАЯ КОПИЯ aw_dim_date (Ф2): структура идентична базовому кубу,
+# отличается только роль (join-ключ факта). Правки иерархий синхронизировать
+# с aw_dim_date.cube.yml.
+# Иерархии — как в SSAS Date.dim: Calendar, Fiscal, Calendar Weeks, Fiscal Weeks.
+# Уровни-суррогаты (YYYYMM, YYYYQ, YYYYP, YYYYWW) сортируются хронологически
+# и однозначно вкладываются в свой год; ES/FR-колонки исключены (translations
+# вне скоупа, docs/ssasmd-cube-migration.md §11).
+cubes:
+  - name: aw_date_due
+    title: Дата оплаты (ролевая)
+    description: |
+      Роль DueDate: плановый срок оплаты. Join: FactInternetSales/FactResellerSales.DueDateKey = date_key.
+      Календарное измерение DimDate (AW DW2019): одна строка — один день,
+      2011-01-01 … 2020-12-31 (DateKey формата YYYYMMDD). Grain: день.
+      Четыре пользовательские иерархии как в SSAS: Calendar (Год > Полугодие >
+      Квартал > Месяц > Дата), Fiscal (финансовый год с июля), Calendar/Fiscal
+      Weeks. Финансовый год AW начинается 1 июля: FY2022 = июль 2021 — июнь 2022.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimDate"
+
+    joins: []
+
+    measures: []
+
+    hierarchies:
+      - name: calendar
+        title: Календарь
+        levels: [calendar_year, calendar_half, calendar_quarter_ym, calendar_month, full_date]
+      - name: fiscal
+        title: Финансовый календарь
+          Финансовый год (с 1 июля) > полугодие > квартал > месяц > дата.
+          fiscal_year помечает год окончания FY (июль 2021 → FY2022).
+        levels: [fiscal_year, fiscal_half, fiscal_quarter_ym, fiscal_month, full_date]
+      - name: calendar_weeks
+        title: Календарные недели
+        levels: [calendar_year, calendar_week]
+      - name: fiscal_weeks
+        title: Финансовые недели
+        levels: [fiscal_year, fiscal_week]
+
+    dimensions:
+      - name: date_key
+        title: Ключ даты
+        sql: '{CUBE}."DateKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ дня формата YYYYMMDD (20110702 = 2 июля 2011). Join-ключ фактов (OrderDateKey/DueDateKey/ShipDateKey).
+      - name: full_date
+        title: Дата
+        sql: '{CUBE}."FullDateAlternateKey"'
+        type: time
+        description: Календарная дата дня (натуральный ключ).
+      - name: day_of_week
+        title: День недели
+        sql: '{CUBE}."EnglishDayNameOfWeek"'
+        type: string
+        description: Название дня недели (Sunday … Saturday).
+      - name: day_of_week_num
+        title: Номер дня недели
+        sql: '{CUBE}."DayNumberOfWeek"'
+        type: number
+        description: Номер дня недели 1–7 (1 = воскресенье).
+      - name: day_of_month
+        title: День месяца
+        sql: '{CUBE}."DayNumberOfMonth"'
+        type: number
+        description: Номер дня в месяце 1–31.
+      - name: day_of_year
+        title: День года
+        sql: '{CUBE}."DayNumberOfYear"'
+        type: number
+        description: Порядковый номер дня в году 1–366.
+      - name: week_of_year
+        title: Номер недели
+        sql: '{CUBE}."WeekNumberOfYear"'
+        type: number
+        description: Номер недели в году 1–53 (сырое значение, без привязки к году).
+      - name: calendar_week
+        title: Неделя (YYYYWW)
+        sql: '{CUBE}."CalendarYear" * 100 + {CUBE}."WeekNumberOfYear"'
+        type: number
+        description: Суррогат недели YYYYWW — сортируем и однозначен внутри года. Уровень иерархии «Календарные недели».
+      - name: fiscal_week
+        title: Неделя FY (YYYYWW)
+        sql: '{CUBE}."FiscalYear" * 100 + {CUBE}."WeekNumberOfYear"'
+        type: number
+        description: Суррогат недели внутри финансового года (YYYYWW от fiscal_year). Уровень иерархии «Финансовые недели».
+      - name: month_name
+        title: Месяц (имя)
+        sql: '{CUBE}."EnglishMonthName"'
+        type: string
+        description: Название месяца (January … December). Для сортировки используйте month_of_year или calendar_month.
+      - name: month_of_year
+        title: Номер месяца
+        sql: '{CUBE}."MonthNumberOfYear"'
+        type: number
+        description: Номер месяца в году 1–12 (одинаков для календарного и финансового года).
+      - name: calendar_month
+        title: Месяц (YYYYMM)
+        sql: '{CUBE}."CalendarYear" * 100 + {CUBE}."MonthNumberOfYear"'
+        type: number
+        description: Суррогат месяца YYYYMM (201107 = июль 2011) — хронологическая сортировка. Уровень иерархии Calendar.
+      - name: fiscal_month
+        title: Месяц FY (YYYYMM)
+        sql: '{CUBE}."FiscalYear" * 100 + {CUBE}."MonthNumberOfYear"'
+        type: number
+        description: Суррогат месяца внутри финансового года (месяц календарный, год — FY).
+      - name: calendar_quarter
+        title: Квартал (номер)
+        sql: '{CUBE}."CalendarQuarter"'
+        type: number
+        description: Номер квартала в году 1–4.
+      - name: calendar_quarter_ym
+        title: Квартал (YYYYQ)
+        sql: '{CUBE}."CalendarYear" * 100 + {CUBE}."CalendarQuarter"'
+        type: number
+        description: Суррогат квартала YYYYQ (20113 = Q3 2011). Уровень иерархии Calendar.
+      - name: calendar_half
+        title: Полугодие (YYYYP)
+        sql: '{CUBE}."CalendarYear" * 100 + {CUBE}."CalendarSemester"'
+        type: number
+        description: Суррогат полугодия YYYYP, P = 1|2 (20111 = H1 2011). Уровень иерархии Calendar.
+      - name: calendar_year
+        title: Год
+        sql: '{CUBE}."CalendarYear"'
+        type: number
+        description: Календарный год (2011 … 2020).
+      - name: fiscal_quarter
+        title: Квартал FY (номер)
+        sql: '{CUBE}."FiscalQuarter"'
+        type: number
+        description: Номер квартала финансового года 1–4.
+      - name: fiscal_quarter_ym
+        title: Квартал FY (YYYYQ)
+        sql: '{CUBE}."FiscalYear" * 100 + {CUBE}."FiscalQuarter"'
+        type: number
+        description: Суррогат квартала финансового года YYYYQ. Уровень иерархии Fiscal.
+      - name: fiscal_half
+        title: Полугодие FY (YYYYP)
+        sql: '{CUBE}."FiscalYear" * 100 + {CUBE}."FiscalSemester"'
+        type: number
+        description: Суррогат полугодия финансового года YYYYP. Уровень иерархии Fiscal.
+      - name: fiscal_year
+        title: Финансовый год
+        sql: '{CUBE}."FiscalYear"'
+        type: number
+        description: Финансовый год (начало 1 июля; FY2022 = июль 2021 — июнь 2022). Значение — год окончания.

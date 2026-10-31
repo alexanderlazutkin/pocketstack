@@ -1,0 +1,60 @@
+# План счетов (DimAccount): parent-child + УНАРНЫЕ ОПЕРАТОРЫ.
+# Флэт-иерархия с sign-колонкой (эмуляция unary-операторов) — Ф6 (aw_finance).
+# Здесь — плоские атрибуты; CustomMembers/CustomMemberOptions (MDX) — вне скоупа.
+cubes:
+  - name: aw_dim_account
+    title: План счетов
+    description: |
+      Измерение плана счетов AW (DimAccount), parent-child по ParentAccountKey:
+      4 уровня (Итоги > Баланс/ФинРезультат > статьи > субстатьи), 102 счёта.
+      Унарные операторы Operator (+ включить, − вычесть, ~ игнорировать)
+      применяются при агрегации Amount — нативно Cube не поддерживается,
+      эмуляция sign-колонкой в Ф6 (aw_finance + dim_account_flat, док §4.1).
+    sql: SELECT * FROM aw_dw2019_ru.dbo."DimAccount"
+
+    joins: []
+
+    measures: []
+
+    dimensions:
+      - name: account_key
+        title: Ключ счёта
+        sql: '{CUBE}."AccountKey"'
+        type: number
+        primary_key: true
+        description: Суррогатный ключ счёта. Join-ключ FactFinance.AccountKey.
+      - name: parent_account_key
+        title: Ключ родительского счёта
+        sql: '{CUBE}."ParentAccountKey"'
+        type: number
+        description: Родительский счёт (NULL у корней). Основа parent-child иерархии Ф6.
+      - name: account_code
+        title: Код счёта
+        sql: '{CUBE}."AccountCodeAlternateKey"'
+        type: number
+        description: Натуральный код счёта (1, 10, 20, 30…).
+      - name: parent_account_code
+        title: Код родительского счёта
+        sql: '{CUBE}."ParentAccountCodeAlternateKey"'
+        type: number
+        description: Натуральный код родителя.
+      - name: account_description
+        title: Описание счёта
+        sql: '{CUBE}."AccountDescription"'
+        type: string
+        description: Бизнес-описание счёта.
+      - name: account_type
+        title: Тип счёта
+        sql: '{CUBE}."AccountType"'
+        type: string
+        description: 'Тип: Income, Expense, Asset, Liability, Flow, Statistical… Управляет ByAccount-агрегацией (Ф5).'
+      - name: operator
+        title: Унарный оператор
+        sql: '{CUBE}."Operator"'
+        type: string
+        description: 'Оператор свёртки в родительский итог: + (включить), − (вычесть), ~ (игнорировать). Используется sign-эмуляцией Ф6.'
+      - name: value_type
+        title: Тип величины
+        sql: '{CUBE}."ValueType"'
+        type: string
+        description: Currency / Percentage — характер сумм по счёту.

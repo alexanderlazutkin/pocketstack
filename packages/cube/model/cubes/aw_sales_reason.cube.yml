@@ -1,0 +1,104 @@
+# M2M «заказ ⇄ причина покупки»: мост FactInternetSalesReason.
+# Count-семантика переносится честно; суммы — АЛЛОКАЦИЯ равными долями между
+# причинами строки (в SSAS движок аллоцировал сам; равные долги — наше правило).
+cubes:
+  - name: aw_sales_reason
+    title: Причины покупек (мост M2M)
+    description: |
+      Связь many-to-many «строка интернет-заказа ⇄ причина покупки»
+      (FactInternetSalesReason). Count-семантика (число строк/заказов по
+      причине) — честная, как в SSAS ([Sales Reason Count] MG=Sales Reasons).
+      Суммарная выручка по причине — АЛЛОКАЦИЯ: сумма строки делится поровну
+      между её причинами (allocated_amount = SalesAmount / k причин). Σ
+      allocated_amount по всем причинам == выручка строк, У КОТОРЫХ есть
+      причины (22 430 131.5744; строки без причин в разрез причин не попадают —
+      как в SSAS M2M; контроль Ф9). ⚠ не SSAS-эквивалент для сумм: в SSAS взвешивание
+      делал движок; равные доли — явное упрощение.
+    sql: |
+      WITH cnt AS (
+        SELECT "SalesOrderNumber", "SalesOrderLineNumber", COUNT(*) AS reasons
+        FROM aw_dw2019_ru.dbo."FactInternetSalesReason"
+        GROUP BY 1, 2
+      )
+      SELECT
+        br."SalesReasonKey" AS sales_reason_key,
+        d."SalesReasonName" AS sales_reason_name,
+        d."SalesReasonReasonType" AS sales_reason_type,
+        br."SalesOrderNumber" AS sales_order_number,
+        br."SalesOrderLineNumber" AS sales_order_line_number,
+        f."SalesAmount" / cnt.reasons AS allocated_amount,
+        f."OrderDateKey" AS order_date_key
+      FROM aw_dw2019_ru.dbo."FactInternetSalesReason" br
+      JOIN cnt
+        ON cnt."SalesOrderNumber" = br."SalesOrderNumber"
+       AND cnt."SalesOrderLineNumber" = br."SalesOrderLineNumber"
+      JOIN aw_dw2019_ru.dbo."FactInternetSales" f
+        ON f."SalesOrderNumber" = br."SalesOrderNumber"
+       AND f."SalesOrderLineNumber" = br."SalesOrderLineNumber"
+      JOIN aw_dw2019_ru.dbo."DimSalesReason" d
+        ON d."SalesReasonKey" = br."SalesReasonKey"
+    joins:
+      - name: aw_date_order
+        sql: '{CUBE}.order_date_key = {aw_date_order}."DateKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: reason_line_count
+        title: Встречаемость причины
+        sql: sales_reason_key
+        type: count
+        description: "Число пар (строка заказа × причина). SSAS: [Sales Reason Count] MG=Sales Reasons (Count)."
+      - name: orders_count
+        title: Заказов с причиной
+        sql: sales_order_number
+        type: count_distinct
+        description: DC заказов, где встречалась причина.
+      - name: allocated_sales_amount
+        title: Выручка по причине (аллокация)
+        sql: allocated_amount
+        type: sum
+        format: currency
+        description: |
+          Аллоцированная выручка, USD: сумма строки / число её причин.
+          Σ по всем причинам == интернет-выручка. ⚠ не SSAS-эквивалент
+          (равные доли — наше правило разбиения).
+
+    dimensions:
+      - name: sales_reason_key
+        title: Ключ причины
+        sql: sales_reason_key
+        type: number
+        primary_key: true
+        description: FK → DimSalesReason.
+      - name: sales_order_number
+        title: Номер заказа
+        sql: sales_order_number
+        type: string
+        primary_key: true
+        description: "Строка моста: заказ."
+      - name: sales_order_line_number
+        title: Строка заказа
+        sql: sales_order_line_number
+        type: number
+        primary_key: true
+        description: "Строка моста: позиция."
+      - name: sales_reason_name
+        title: Причина
+        sql: sales_reason_name
+        type: string
+        description: Название причины покупки.
+      - name: sales_reason_type
+        title: Тип причины
+        sql: sales_reason_type
+        type: string
+        description: Категория (Price, Quality, Service…).
+      - name: order_date_key
+        title: Ключ даты заказа
+        sql: order_date_key
+        type: number
+        description: Дата заказа строки (join aw_date_order).
+      - name: allocated_amount
+        title: Аллокация строки
+        sql: allocated_amount
+        type: number
+        description: Raw-значение аллокации строки (не агрегируйте суммой по дублям — используйте меру).

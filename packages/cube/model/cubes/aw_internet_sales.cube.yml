@@ -1,0 +1,220 @@
+# Интернет-продажи (FactInternetSales) — факт строк заказов интернет-магазина.
+# MG SSAS: Internet Sales (9) + Internet Orders (1) + Internet Customers (1).
+# Ролевые даты: order/due/ship через алиас-кубы aw_date_*.
+cubes:
+  - name: aw_internet_sales
+    title: Интернет-продажи
+    description: |
+      Факт продаж интернет-магазина AW: одна строка — позиция заказа.
+      Grain: (sales_order_number, sales_order_line_number), 60 398 строк,
+      2011–2020? (даты заказов 2011-01 → для AW DW2019: 2011–2020 в DateKey).
+      Все суммы — в валюте сделки (CurrencyKey; в основном USD, конверсия — Ф5).
+      Соответствие SSAS: MG Internet Sales + Internet Orders + Internet Customers.
+    sql: SELECT * FROM aw_dw2019_ru.dbo."FactInternetSales"
+
+    joins:
+      - name: aw_dim_product
+        sql: '{CUBE}."ProductKey" = {aw_dim_product}."ProductKey"'
+        relationship: many_to_one
+      - name: aw_dim_customer
+        sql: '{CUBE}."CustomerKey" = {aw_dim_customer}."CustomerKey"'
+        relationship: many_to_one
+      - name: aw_dim_promotion
+        sql: '{CUBE}."PromotionKey" = {aw_dim_promotion}."PromotionKey"'
+        relationship: many_to_one
+      - name: aw_dim_currency
+        sql: '{CUBE}."CurrencyKey" = {aw_dim_currency}."CurrencyKey"'
+        relationship: many_to_one
+      - name: aw_dim_sales_territory
+        sql: '{CUBE}."SalesTerritoryKey" = {aw_dim_sales_territory}."SalesTerritoryKey"'
+        relationship: many_to_one
+      - name: aw_date_order
+        sql: '{CUBE}."OrderDateKey" = {aw_date_order}."DateKey"'
+        relationship: many_to_one
+      - name: aw_date_due
+        sql: '{CUBE}."DueDateKey" = {aw_date_due}."DateKey"'
+        relationship: many_to_one
+      - name: aw_date_ship
+        sql: '{CUBE}."ShipDateKey" = {aw_date_ship}."DateKey"'
+        relationship: many_to_one
+
+    hierarchies:
+      - name: internet_sales_orders
+        title: Заказы (интернет)
+        levels: [sales_order_number, sales_order_line_number]
+
+    measures:
+      - name: sales_amount
+        title: Сумма продаж (интернет)
+        sql: '{CUBE}."SalesAmount"'
+        type: sum
+        format: currency
+        description: |
+          Нетто-сумма позиции: ExtendedAmount − DiscountAmount. USD.
+          Эталон Ф9: 29 358 677.2207.
+          SSAS: [Internet Sales Amount] MG=Internet Sales.
+      - name: order_quantity
+        title: Количество (интернет)
+        sql: '{CUBE}."OrderQuantity"'
+        type: sum
+        format: number
+        description: "Суммарное количество единиц товара, шт. SSAS: [Internet Order Quantity] MG=Internet Sales."
+      - name: extended_amount
+        title: Сумма до скидки (интернет)
+        sql: '{CUBE}."ExtendedAmount"'
+        type: sum
+        format: currency
+        description: "Цена × количество до скидки, USD. SSAS: [Internet Extended Amount] MG=Internet Sales."
+      - name: tax_amount
+        title: Налог (интернет)
+        sql: '{CUBE}."TaxAmt"'
+        type: sum
+        format: currency
+        description: "Сумма налога, USD. SSAS: [Internet Tax Amount] MG=Internet Sales."
+      - name: freight_cost
+        title: Доставка (интернет)
+        sql: '{CUBE}."Freight"'
+        type: sum
+        format: currency
+        description: "Стоимость доставки, USD. SSAS: [Internet Freight Cost] MG=Internet Sales."
+      - name: total_product_cost
+        title: Полная себестоимость (интернет)
+        sql: '{CUBE}."TotalProductCost"'
+        type: sum
+        format: currency
+        description: "Себестоимость с учётом накладных, USD. SSAS: [Internet Total Product Cost] MG=Internet Sales."
+      - name: standard_product_cost
+        title: Стандартная себестоимость (интернет)
+        sql: '{CUBE}."ProductStandardCost"'
+        type: sum
+        format: currency
+        description: "Стандартная себестоимость, USD. SSAS: [Internet Standard Product Cost] MG=Internet Sales."
+      - name: unit_price
+        title: Цена за единицу (интернет, сумма)
+        sql: '{CUBE}."UnitPrice"'
+        type: sum
+        format: currency
+        description: |
+          СУММА цен позиций, USD — как в SSAS ([Internet Unit Price], Sum).
+          Внимание: агрегат «сумма цен» почти бессмыслен вне grain строки;
+          для средней цены используйте avg_unit_price (Ф4, взвешенная).
+      - name: transaction_count
+        title: Транзакций (интернет)
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: count
+        format: number
+        description: "Число строк-позиций заказа. SSAS: [Internet Transaction Count] MG=Internet Sales (Count)."
+      - name: order_count
+        title: Заказов (интернет)
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: count_distinct
+        format: number
+        description: "Число уникальных заказов (SalesOrderNumber). SSAS: [Internet Order Count] MG=Internet Orders (DistinctCount)."
+      - name: customer_count
+        title: Клиентов
+        sql: '{CUBE}."CustomerKey"'
+        type: count_distinct
+        format: number
+        description: "Число уникальных клиентов. SSAS: [Customer Count] MG=Internet Customers (DistinctCount)."
+      - name: gross_profit
+        title: Валовая прибыль (интернет)
+        sql: '{CUBE}."SalesAmount" - {CUBE}."TotalProductCost"'
+        type: sum
+        format: currency
+        description: |
+          SalesAmount − TotalProductCost, USD. Агрегируется как сумма разностей
+          (numerator-семантика: корректно на любом срезе).
+          SSAS: [Internet Gross Profit] MG=Internet Sales (calculated).
+      - name: gross_profit_margin
+        title: Валовая маржа, % (интернет)
+        sql: '{CUBE.gross_profit} / NULLIF({CUBE.sales_amount}, 0)'
+        type: number
+        format: percent
+        description: |
+          Доля валовой прибыли в выручке (0.38 = 38%). Деление мер: numerator
+          и denominator агрегируются отдельно — корректно на любом срезе
+          (НЕ avg по строкам). SSAS: [Internet Gross Profit Margin] (calculated).
+      - name: avg_unit_price
+        title: Средняя цена единицы (интернет)
+        sql: '{CUBE.unit_price} / NULLIF({CUBE.transaction_count}, 0)'
+        type: number
+        format: currency
+        description: |
+          Σ(UnitPrice) / число строк — средняя цена позиции, USD. Эквивалент
+          SSAS-формулы [Internet Unit Price]/[Internet Transaction Count].
+          SSAS: [Internet Average Unit Price] (calculated).
+      - name: avg_sales_amount
+        title: Средняя сумма заказа (интернет)
+        sql: '{CUBE.sales_amount} / NULLIF({CUBE.order_count}, 0)'
+        type: number
+        format: currency
+        description: "Выручка / число заказов, USD. SSAS: [Internet Average Sales Amount] (calculated)."
+
+    dimensions:
+      - name: sales_order_number
+        title: Номер заказа
+        sql: '{CUBE}."SalesOrderNumber"'
+        type: string
+        primary_key: true
+        description: Номер заказа SO#####. Вместе с sales_order_line_number — grain факта. Дегенеративное измерение.
+      - name: sales_order_line_number
+        title: Строка заказа
+        sql: '{CUBE}."SalesOrderLineNumber"'
+        type: number
+        primary_key: true
+        description: Номер позиции внутри заказа 1–n. Часть grain.
+      - name: revision_number
+        title: Ревизия заказа
+        sql: '{CUBE}."RevisionNumber"'
+        type: number
+        description: Номер редакции заказа (1–2).
+      - name: carrier_tracking_number
+        title: Трек-номер
+        sql: '{CUBE}."CarrierTrackingNumber"'
+        type: string
+        description: Трек-номер перевозчика (для отгрузки).
+      - name: customer_po_number
+        title: PO клиента
+        sql: '{CUBE}."CustomerPONumber"'
+        type: string
+        description: Номер заказа на покупку клиента (PO).
+      - name: product_key
+        title: Ключ товара
+        sql: '{CUBE}."ProductKey"'
+        type: number
+        description: FK → aw_dim_product.
+      - name: customer_key
+        title: Ключ клиента
+        sql: '{CUBE}."CustomerKey"'
+        type: number
+        description: FK → aw_dim_customer.
+      - name: promotion_key
+        title: Ключ акции
+        sql: '{CUBE}."PromotionKey"'
+        type: number
+        description: FK → aw_dim_promotion.
+      - name: currency_key
+        title: Ключ валюты
+        sql: '{CUBE}."CurrencyKey"'
+        type: number
+        description: FK → aw_dim_currency (валюта сделки).
+      - name: sales_territory_key
+        title: Ключ территории
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        description: FK → aw_dim_sales_territory.
+      - name: order_date
+        title: Дата заказа
+        sql: '{CUBE}."OrderDate"'
+        type: time
+        description: Календарная дата заказа (дублирует OrderDateKey через aw_date_order).
+      - name: due_date
+        title: Срок оплаты
+        sql: '{CUBE}."DueDate"'
+        type: time
+        description: Плановый срок оплаты.
+      - name: ship_date
+        title: Дата отгрузки
+        sql: '{CUBE}."ShipDate"'
+        type: time
+        description: Дата отгрузки.
