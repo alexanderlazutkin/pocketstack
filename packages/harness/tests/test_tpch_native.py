@@ -1,12 +1,11 @@
 """Тесты нативного TPC-H бенчмарка №16 (docs/plan.md §9): file vs ducklake.
 
-Юнит — чистые помощники (сравнение/парсинг/отчёт); интеграция — файловый
-dbgen-таргет на sf=0.01 (dbgen ~0.1 c) + валидация tpch_answers();
-lake-часть — под RUN_LAKE_TESTS=1 (как test_lake_* в pocketstack-sqlmesh).
+Юнит — чистые помощники (сравнение/парсинг/отчёт в формате ducklake-sandbox
++ блок параметров прогона); интеграция — файловый dbgen-таргет на sf=0.01
+(dbgen ~0.1 c) + валидация tpch_answers(); lake-часть — под RUN_LAKE_TESTS=1.
 """
 
 import os
-from pathlib import Path
 
 import duckdb
 import pytest
@@ -26,7 +25,6 @@ from harness.tpch_native import (
     write_run,
 )
 
-HERE = Path(__file__).resolve().parent
 LAKE_TESTS = os.environ.get("RUN_LAKE_TESTS", "") == "1"
 
 
@@ -36,6 +34,92 @@ def _tpch_con():
     con.execute("INSTALL tpch")
     con.execute("LOAD tpch")
     return con
+
+
+def _bench_fixture():
+    """bench_summary: long-формат (query × target), как benchmark_summary.csv."""
+    return [
+        {
+            "query": "Q01",
+            "target": "file",
+            "iterations": 3,
+            "avg_time_ms": 120.0,
+            "min_time_ms": 110.0,
+            "max_time_ms": 130.0,
+            "p50_time_ms": 120.0,
+            "total_time_ms": 360.0,
+            "rows": 4,
+            "status": "success",
+        },
+        {
+            "query": "Q02",
+            "target": "file",
+            "iterations": 3,
+            "avg_time_ms": 80.0,
+            "min_time_ms": 70.0,
+            "max_time_ms": 90.0,
+            "p50_time_ms": 80.0,
+            "total_time_ms": 240.0,
+            "rows": 140,
+            "status": "success",
+        },
+        {
+            "query": "Q01",
+            "target": "ducklake",
+            "iterations": 3,
+            "avg_time_ms": 300.0,
+            "min_time_ms": 290.0,
+            "max_time_ms": 310.0,
+            "p50_time_ms": 300.0,
+            "total_time_ms": 900.0,
+            "rows": 4,
+            "status": "success",
+        },
+        {
+            "query": "Q02",
+            "target": "ducklake",
+            "iterations": 3,
+            "avg_time_ms": 150.0,
+            "min_time_ms": 140.0,
+            "max_time_ms": 160.0,
+            "p50_time_ms": 150.0,
+            "total_time_ms": 450.0,
+            "rows": 140,
+            "status": "success",
+        },
+    ]
+
+
+def _validation_fixture():
+    return [
+        {
+            "query": "Q01",
+            "parity": "OK",
+            "parity_reason": "",
+            "answers": "OK",
+            "answers_reason": "",
+        },
+        {
+            "query": "Q02",
+            "parity": "OK",
+            "parity_reason": "",
+            "answers": "n/a",
+            "answers_reason": "нет эталона tpch_answers() для sf=10",
+        },
+    ]
+
+
+def _meta_fixture():
+    return {
+        "run": "2026-10-31T120000",
+        "commit": "abc1234",
+        "sf": "1",
+        "n": 3,
+        "target": "file + ducklake",
+        "queries": "Q1–Q22 (22)",
+        "answers": "вкл (sf=1)",
+        "duckdb": "1.5.5",
+    }
 
 
 # ------------------------------------------------------------ чистые юниты ----
@@ -89,82 +173,108 @@ def test_answer_matches_string_columns_and_count():
     assert not answer_matches(ours, answer_bad)[0]
 
 
-def test_stats_median_and_min():
+def test_stats_median_min_avg_max():
     s = stats([100.0, 50.0, 200.0])
     assert s["p50"] == pytest.approx(100.0)
     assert s["min"] == pytest.approx(50.0)
+    assert s["max"] == pytest.approx(200.0)
+    assert s["avg"] == pytest.approx(116.6666667)
 
 
 # ------------------------------------------------------------------ отчёт ----
-def _summary_fixture():
-    return [
-        {
-            "q": 1,
-            "rows": 4,
-            "parity": "OK",
-            "answers": "OK",
-            "file_p50_ms": 120.0,
-            "file_min_ms": 110.0,
-            "lake_p50_ms": 300.0,
-            "lake_min_ms": 290.0,
-        },
-        {
-            "q": 2,
-            "rows": 140,
-            "parity": "OK",
-            "answers": "OK",
-            "file_p50_ms": 80.0,
-            "file_min_ms": 70.0,
-            "lake_p50_ms": 150.0,
-            "lake_min_ms": 140.0,
-        },
-    ]
+def test_build_summary_md_params_block():
+    md = build_summary_md(_bench_fixture(), _validation_fixture(), _meta_fixture())
+    assert "## Параметры прогона" in md
+    params_block = md.split("## Параметры прогона", 1)[1][:1200]
+    for value in (
+        "2026-10-31T120000",
+        "`abc1234`",
+        "| 1 |",
+        "| 3 |",
+        "file + ducklake",
+        "Q1–Q22 (22)",
+        "1.5.5",
+    ):
+        assert value in params_block, value
 
 
 def test_build_summary_md_table_and_totals():
-    md = build_summary_md(_summary_fixture(), meta={"commit": "abc", "sf": "1", "n": 3})
+    md = build_summary_md(_bench_fixture(), _validation_fixture(), _meta_fixture())
     for frag in (
         "| Q | rows |",
         "parity",
         "answers",
-        "file p50",
-        "ducklake p50",
-        "| 1 | 4 |",
-        "| 2 | 140 |",
+        "file p50 (min), мс",
+        "ducklake p50 (min), мс",
+        "| Q01 | 4 |",
+        "| Q02 | 140 |",
     ):
         assert frag in md, frag
-    assert "Σp50" in md and "медиана" in md
-    # Σ и медиана по обеим целям
-    assert "200" in md  # Σ file = 120+80
-    assert "450" in md  # Σ lake = 300+150
-    assert "100.0" in md  # медиана file
-    assert "225.0" in md  # медиана lake
-    assert "2/2" in md  # parity и answers счётчики
-    assert "`abc`" in md
+    assert "Σp50" in md and "медиана" in md and "Σavg" in md
+    assert "200" in md  # Σp50 file = 120+80
+    assert "450" in md  # Σp50 ducklake = 300+150
+    assert "100.0" in md  # медиана p50 file
+    assert "225.0" in md  # медиана p50 ducklake
+    assert "parity 2/2" in md
+    assert "answers 1/2" in md  # n/a не считается OK
 
 
-def test_write_run_artifacts(tmp_path):
+def test_build_summary_md_single_target():
+    bench = [r for r in _bench_fixture() if r["target"] == "file"]
+    validation = [dict(v, parity="—") for v in _validation_fixture()]
+    md = build_summary_md(bench, validation, {**_meta_fixture(), "target": "file"})
+    assert "| Q01 | 4 |" in md
+    assert "—" in md  # ducklake-колонки пустые
+    assert "ducklake 0" not in md  # одиночная цель не даёт фиктивных нулей
+    assert "; parity —" in md and "; answers 1/2." in md
+
+
+def test_write_run_artifacts_sandbox_format(tmp_path):
     detail = [
-        {"q": 1, "target": "file", "iteration": 1, "ms": 10.5, "rows": 4},
-        {"q": 1, "target": "ducklake", "iteration": 1, "ms": 20.5, "rows": 4},
+        {
+            "query": "Q01",
+            "target": "file",
+            "attempt": 1,
+            "time_ms": 10.5,
+            "rows": 4,
+            "status": "success",
+        },
+        {
+            "query": "Q01",
+            "target": "ducklake",
+            "attempt": 1,
+            "time_ms": 20.5,
+            "rows": 4,
+            "status": "success",
+        },
     ]
     queries = {1: "SELECT 1"}
-    write_run(
-        detail, _summary_fixture(), queries, tmp_path, meta={"commit": "abc", "sf": "1", "n": 1}
+    write_run(detail, _bench_fixture(), _validation_fixture(), queries, tmp_path, _meta_fixture())
+    d = (tmp_path / "benchmark_detailed_timing.csv").read_text()
+    assert d.splitlines()[0] == "query,target,attempt,time_ms,rows,status"
+    assert "Q01" in d
+    s = (tmp_path / "benchmark_summary.csv").read_text()
+    assert s.splitlines()[0] == (
+        "query,target,iterations,avg_time_ms,min_time_ms,max_time_ms,p50_time_ms,total_time_ms,rows,status"
     )
-    assert (tmp_path / "detail.csv").read_text().splitlines()[0] == "q,target,iteration,ms,rows"
-    assert (tmp_path / "summary.csv").exists()
-    assert "-- Q1" in (tmp_path / "tpch_queries.sql").read_text()
+    v = (tmp_path / "validation_summary.csv").read_text()
+    assert v.splitlines()[0] == "query,parity,parity_reason,answers,answers_reason"
+    q = (tmp_path / "tpch_all_queries.sql").read_text()
+    assert "Scale Factor: 1" in q and "-- Query 1" in q
     assert (tmp_path / "summary.md").exists()
 
 
-def test_append_index_header_once(tmp_path):
+def test_append_index_header_once_with_params(tmp_path):
     idx = tmp_path / "index.md"
-    append_index(idx, {"run": "r1", "commit": "a", "sf": "1"}, _summary_fixture())
-    append_index(idx, {"run": "r2", "commit": "b", "sf": "1"}, _summary_fixture())
+    meta = {**_meta_fixture(), "n": 3, "target": "file + ducklake"}
+    append_index(idx, meta, _bench_fixture(), _validation_fixture())
+    append_index(idx, {**meta, "run": "r2"}, _bench_fixture(), _validation_fixture())
     text = idx.read_text()
     assert text.count("| run | commit |") == 1
-    assert "| r1 |" in text and "| r2 |" in text
+    assert "| N |" in text and "| target |" in text
+    assert "| 2026-10-31T120000 |" in text and "| r2 |" in text
+    assert "| 3 |" in text  # N
+    assert "| 200 |" in text and "| 450 |" in text  # Σp50 file/ducklake
 
 
 # ------------------------------------------------------------ интеграция ----
@@ -203,16 +313,19 @@ def test_bootstrap_file_and_run_smoke(tmp_path):
     file_con = open_file_target(tmp_path, sf=0.01)
     tpch = _tpch_con()
     try:
-        summary, detail = run_benchmark(
+        detail, bench, validation = run_benchmark(
             {"file": file_con}, queries=get_queries(tpch, [1, 22]), n=1, sf=0.01, answers_con=tpch
         )
     finally:
         file_con.close()
         tpch.close()
-    assert len(summary) == 2
-    assert all(r["parity"] == "OK" for r in summary)  # одна цель — паритет с собой
-    assert all(r["answers"] == "OK" for r in summary)  # ответы есть для sf=0.01
     assert len(detail) == 2  # 2 запроса × 1 цель × 1 итерация
+    assert all(r["status"] == "success" for r in detail)
+    assert {r["target"] for r in bench} == {"file"}
+    assert all(r["status"] == "success" for r in bench)
+    assert len(validation) == 2
+    assert all(v["parity"] == "—" for v in validation)  # одна цель — паритета нет
+    assert all(v["answers"] == "OK" for v in validation)  # ответы есть для sf=0.01
 
 
 @pytest.mark.skipif(not LAKE_TESTS, reason="RUN_LAKE_TESTS=1 (нужны pg+minio из docker compose)")
@@ -226,7 +339,7 @@ def test_bootstrap_lake_and_run(tmp_path):
     tpch = _tpch_con()
     try:
         assert lake_con.execute("SELECT count(*) FROM lineitem").fetchone()[0] == 60175
-        summary, detail = run_benchmark(
+        detail, bench, validation = run_benchmark(
             {"file": file_con, "ducklake": lake_con},
             queries=get_queries(tpch, [1]),
             n=1,
@@ -237,8 +350,9 @@ def test_bootstrap_lake_and_run(tmp_path):
         lake_con.close()
         file_con.close()
         tpch.close()
-    assert summary[0]["parity"] == "OK"
-    assert summary[0]["answers"] == "OK"
+    assert validation[0]["parity"] == "OK"
+    assert validation[0]["answers"] == "OK"
+    assert {r["target"] for r in bench} == {"file", "ducklake"}
     assert len(detail) == 2
 
     # зачистка тестовой схемы

@@ -1,8 +1,10 @@
 # Нативный TPC-H бенчмарк: DuckDB file vs DuckLake
 
-Версия: 1.0 (2026-10-31, план §9 №16). Реализация: `packages/harness/harness/tpch_native.py`,
-запуск `just bench-native [sf]` (default sf=1). Базис: наработки
-`ducklake-sandbox` (run_tpch_queries.py / bootstrap_ducklake.py), адаптированы.
+Версия: 1.1 (2026-10-31 — артефакты в формате ducklake-sandbox + блок параметров
+прогона + `--target`; пошаговый user guide выделен). Реализация:
+`packages/harness/harness/tpch_native.py`, запуск `just bench-native [sf]`
+(default sf=1). **Пошаговое воспроизведение: docs/user-guide-tpch-benchmark.md.**
+Базис: наработки `ducklake-sandbox`, адаптированы.
 
 ## 1. Назначение
 
@@ -26,31 +28,41 @@ main). Данные бенча управляются собственным boo
 ## 2. Методика
 
 - Запросы: `tpch_queries()` Q1–Q22 дословно, без переписывания.
-- Итерации: N=3 на цель (p50/медиана + min, wall-clock), чередование целей
-  внутри запроса (file → ducklake) — обе цели в равных условиях.
-- **answers**: сверка file-результата с эталонами `tpch_answers()`
-  (доступны sf 0.01 / 0.1 / 1; для прочих sf — `n/a`). Ответы TPC-H округлены
-  до 2 знаков — числовые колонки сравниваются с допуском 0.005.
+- Итерации: N=3 на цель (default; `--n`), статистика avg/min/max/p50/total,
+  чередование целей внутри запроса (file → ducklake) — обе цели в равных условиях.
+- **answers**: сверка результата эталонной цели (file; при её отсутствии —
+  ducklake) с эталонами `tpch_answers()` (доступны sf 0.01 / 0.1 / 1; для прочих
+  sf — `n/a`). Ответы TPC-H округлены до 2 знаков — числовые колонки
+  сравниваются с допуском 0.005.
 - **parity**: file ↔ ducklake построчно, порядок строк не важен (ORDER BY keys
   не задают полный порядок), числовая толерантность 1e-6/1e-9.
+- Ошибка попытки не валит прогон: фиксируется в `status` (формат sandbox).
 - DuckDB 1.5.5 (venv воркспейса, как весь стек).
-- Нужна ducklake-инфраструктура: `docker compose up -d --wait` (pg+minio).
+- Нужна ducklake-инфраструктура для целей ducklake/both:
+  `docker compose up -d --wait` (pg+minio); для `--target file` docker не нужен.
 
-Опции CLI: `--n N`, `--queries '1,5,9'`, `--skip-answers`, `--bootstrap-only`.
+Опции CLI: `--n N`, `--target file|ducklake|both`, `--queries '1,5,9'`,
+`--skip-answers`, `--bootstrap-only` (полная таблица — user guide §3).
 
-## 3. Артефакты (results/native/, в git)
+## 3. Артефакты (results/native/, в git; формат ducklake-sandbox)
 
 ```
 results/native/
-├── index.md                    # журнал прогонов: run, commit, sf, parity, answers, Σp50
-└── <YYYY-MM-DDTHHMMSS>/        # один прогон
-    ├── detail.csv              # q × target × iteration → ms, rows
-    ├── summary.csv             # q → rows, parity, answers, p50/min по целям
-    ├── summary.md              # ОДНА таблица Q1–Q22: file vs ducklake + итог Σ/медиана
-    └── tpch_queries.sql        # все 22 запроса дословно (референс прогона)
+├── index.md                       # журнал: run, commit, sf, N, target, parity, answers, Σp50
+└── <YYYY-MM-DDTHHMMSS>/           # один прогон
+    ├── benchmark_detailed_timing.csv  # каждая попытка: query,target,attempt,time_ms,rows,status
+    ├── benchmark_summary.csv          # query × target: iterations, avg/min/max/p50/total, rows, status
+    ├── validation_summary.csv         # query, parity(+reason), answers(+reason)
+    ├── tpch_all_queries.sql           # все запросы дословно + шапка (Scale Factor, Target)
+    └── summary.md                     # ОДНА таблица Q1–Q22 + блок «Параметры прогона» + итог Σ/медиана
 ```
 
-Exit code: 0 — все parity/answers OK; 1 — есть FAIL (n/a не считается провалом).
+`summary.md` начинается с блока **«Параметры прогона»**: запуск, commit, sf,
+N итераций, цель (target), запросы, answers вкл/выкл, версия duckdb —
+артефакт самодокументирован (проверялось: замечание по №16 от 2026-10-31).
+
+Exit code: 0 — все parity/answers OK и все попытки success; 1 — есть FAIL/ошибка
+(n/a и «—» провалом не считаются).
 
 ## 4. Интерпретация (первый прогон sf=1, 2026-10-31T164932)
 

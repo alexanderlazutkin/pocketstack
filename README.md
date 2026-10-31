@@ -75,8 +75,27 @@ just serve-up        # куб в dev — Playground :4000 (по умолчани
 just verify          # тесты живого стека: паритет 3 путей + ground truth
                       # (RBAC-матрица — только в проде: CUBEJS_DEV_MODE=false just serve-up → 88/88)
 just bench           # 13 вопросов, latency 3 путей
-just bench-native 1  # №16: нативный TPC-H Q1-Q22, file vs ducklake (без куба)
 ```
+
+## Нативный TPC-H бенчмарк (№16)
+
+Чистый базлайн движка: 22 запроса `tpch_queries()` к dbgen-данным **без
+семантического слоя**, сравнение физических раскладок file vs ducklake
+(одна таблица Q1–Q22 + Σ/медиана). Валидация: parity file↔ducklake + эталоны
+`tpch_answers()`. Данные изолированы от демо-витрины (dbgen-файл +
+lake-схема `tpch_native`, идемпотентный bootstrap по sf).
+
+```bash
+docker compose up -d --wait   # pg+minio (не нужно для --target file)
+just bench-native 1           # sf=1: parity 22/22, answers 22/22; ~4 мин
+```
+
+Параметры (sf, `--n` итераций, `--target file|ducklake|both`, `--queries`,
+`--skip-answers`), формат результатов (ducklake-sandbox + блок параметров
+прогона) и сценарии для разных sf — пошагово в
+**[docs/user-guide-tpch-benchmark.md](docs/user-guide-tpch-benchmark.md)**;
+методика и интерпретация — [docs/bench-native-tpch.md](docs/bench-native-tpch.md),
+журнал прогонов — `results/native/index.md`.
 
 ### Режим DuckLake (lakehouse) — опция
 
@@ -129,6 +148,7 @@ SQL-клиенты — `docs/cube-sql-clients.md`.
 | `docs/bi-tools-comparison.md` | сравнение BI-инструментов (исследовательский снимок, выбор Evidence) |
 | `docs/bench-protocol.md` | протокол оценки запросов (два режима) |
 | `docs/bench-native-tpch.md` | нативный TPC-H базлайн Q1–Q22: file vs ducklake (№16) |
+| `docs/user-guide-tpch-benchmark.md` | пошаговый user guide №16: параметры sf/N/target, сценарии, диагностика |
 | `docs/gotchas.md` | нюансы и грабли: симптом → причина → решение |
 | `docs/ssasmd-cube-migration.md` | **AW: SSAS Multidimensional → Cube** — миграция куба Adventure Works (12 KPI, унарные операторы, M2M), фазы Ф0–Ф10 |
 

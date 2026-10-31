@@ -1,17 +1,20 @@
-"""Нативный TPC-H бенчмарк №16 (docs/plan.md §9, docs/bench-native-tpch.md).
+"""Нативный TPC-H бенчмарк №16 (docs/plan.md §9, docs/user-guide-tpch-benchmark.md).
 
-22 запроса TPC-H из расширения tpch (tpch_queries()) против dbgen-схемы,
+22 запроса TPC-H из расширения tpch (tpch_queries()) против dbgen-данных,
 БЕЗ семантического слоя — чистый базлайн движка в двух физических раскладках:
 - file:     отдельный dbgen-файл warehouse/tpch_native_sf<N>.duckdb (таблицы в main);
-- ducklake: те же данные CTAS-ом в выделенную схему lake (pg-каталог + parquet в MinIO),
-  READ_ONLY-attach — приём seed_ducklake (plan.md №16: демо-данные не трогаем,
-  sf демо-витрины и бенча независимы).
+- ducklake: те же данные CTAS-ом в выделенную схему lake (pg-каталог + parquet
+  в MinIO), READ_ONLY-attach — приём seed_ducklake (plan.md №16: демо-данные
+  не трогаем, sf бенча независим от sf витрины).
 
-Валидация: answers tpch_answers() (есть для sf 0.01/0.1/1) по file-таргету;
-паритет file ↔ ducklake — построчно с числовой толерантностью.
+Валидация: answers tpch_answers() (есть для sf 0.01/0.1/1) по эталонной цели
+(file, при её отсутствии — ducklake); паритет file ↔ ducklake — построчно
+с числовой толерантностью.
 
-Артефакты (в git): results/native/<ts>/{detail.csv,summary.csv,summary.md,
-tpch_queries.sql} + журнал results/native/index.md. Запуск: just bench-native [sf].
+Артефакты прогона — формат ducklake-sandbox (+ цель/params-блок, в git):
+results/native/<ts>/{benchmark_detailed_timing.csv, benchmark_summary.csv,
+validation_summary.csv, tpch_all_queries.sql, summary.md} + журнал
+results/native/index.md. Запуск: just bench-native [sf] — см. user guide.
 """
 
 import argparse
@@ -26,17 +29,20 @@ from pathlib import Path
 import duckdb
 
 LAKE_ALIAS = "pocketstack"  # как в harness/warehouse.py — единое логическое имя
-DETAIL_COLUMNS = ["q", "target", "iteration", "ms", "rows"]
-SUMMARY_CSV_COLUMNS = [
-    "q",
+DETAIL_COLUMNS = ["query", "target", "attempt", "time_ms", "rows", "status"]
+BENCH_SUMMARY_COLUMNS = [
+    "query",
+    "target",
+    "iterations",
+    "avg_time_ms",
+    "min_time_ms",
+    "max_time_ms",
+    "p50_time_ms",
+    "total_time_ms",
     "rows",
-    "parity",
-    "answers",
-    "file_p50_ms",
-    "file_min_ms",
-    "lake_p50_ms",
-    "lake_min_ms",
+    "status",
 ]
+VALIDATION_COLUMNS = ["query", "parity", "parity_reason", "answers", "answers_reason"]
 
 
 # --------------------------------------------------------------- канонизация --
@@ -137,8 +143,14 @@ def answer_matches(our_rows, answer_text: str) -> tuple[bool, str]:
 
 # --------------------------------------------------------------- статистика ---
 def stats(times: list[float]) -> dict:
-    """p50 (медиана) и min — как в bench-протоколе."""
-    return {"p50": statistics.median(times), "min": min(times)}
+    """avg/min/max/p50/total — формат ducklake-sandbox (+медиана bench-протокола)."""
+    return {
+        "avg": sum(times) / len(times),
+        "min": min(times),
+        "max": max(times),
+        "p50": statistics.median(times),
+        "total": sum(times),
+    }
 
 
 def sf_key(sf: float) -> str:
@@ -257,124 +269,244 @@ def run_benchmark(
     n: int,
     sf: float,
     answers_con: duckdb.DuckDBPyConnection | None = None,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     """N итераций каждого запроса на каждый таргет (file, затем ducklake).
 
-    answers: сверка file-таргета с tpch_answers() (None → '—', нет ответов для sf → 'n/a').
-    parity: file ↔ ducklake построчно (один таргет — тривиально OK).
+    → (detail, bench_summary, validation):
+    - detail: каждая попытка (формат ducklake-sandbox: query/target/attempt/time_ms/rows/status);
+    - bench_summary: query × target → avg/min/max/p50/total (sandbox + p50);
+    - validation: parity (file ↔ ducklake) и answers (vs tpch_answers()).
+    Ошибка попытки не валит прогон: фиксируется в status (как в sandbox).
     """
-    summary, detail = [], []
+    detail, bench, validation = [], [], []
     for q in sorted(queries):
+        label = f"Q{q:02d}"
         sql = queries[q]
-        rows_by, times_by = {}, {name: [] for name in cons}
+        rows_by, times_by, err_by = {}, {t: [] for t in cons}, {}
         for name, con in cons.items():  # file первым — эталон для answers
             for i in range(1, n + 1):
                 t0 = time.perf_counter()
-                rows = con.execute(sql).fetchall()
-                ms = (time.perf_counter() - t0) * 1000.0
-                times_by[name].append(ms)
-                rows_by[name] = rows
-                detail.append(
-                    {"q": q, "target": name, "iteration": i, "ms": round(ms, 2), "rows": len(rows)}
+                try:
+                    rows = con.execute(sql).fetchall()
+                    ms = round((time.perf_counter() - t0) * 1000.0, 2)
+                    rows_by[name] = rows
+                    detail.append(
+                        {
+                            "query": label,
+                            "target": name,
+                            "attempt": i,
+                            "time_ms": ms,
+                            "rows": len(rows),
+                            "status": "success",
+                        }
+                    )
+                    times_by[name].append(ms)
+                except (
+                    duckdb.Error,
+                    OSError,
+                    MemoryError,
+                ) as e:  # фиксируем, идём дальше (как sandbox)
+                    ms = round((time.perf_counter() - t0) * 1000.0, 2)
+                    err_by[name] = str(e)
+                    detail.append(
+                        {
+                            "query": label,
+                            "target": name,
+                            "attempt": i,
+                            "time_ms": ms,
+                            "rows": 0,
+                            "status": f"error: {str(e)[:80]}",
+                        }
+                    )
+        for name in cons:
+            ts = times_by[name]
+            rec = {"query": label, "target": name, "iterations": len(ts), "rows": 0}
+            if ts:
+                s = stats(ts)
+                rec.update(
+                    avg_time_ms=s["avg"],
+                    min_time_ms=s["min"],
+                    max_time_ms=s["max"],
+                    p50_time_ms=s["p50"],
+                    total_time_ms=s["total"],
+                    rows=len(rows_by.get(name, [])),
+                    status="success",
                 )
+            else:
+                rec.update(
+                    avg_time_ms=None,
+                    min_time_ms=None,
+                    max_time_ms=None,
+                    p50_time_ms=None,
+                    total_time_ms=None,
+                    status=f"error: {err_by.get(name, 'no attempts')[:80]}",
+                )
+            bench.append(rec)
 
-        ref_rows = rows_by[next(iter(cons))]
-        parity = "OK"
+        parity, reason = "—", ""
         if "file" in rows_by and "ducklake" in rows_by:
             ok, reason = compare_results(rows_by["file"], rows_by["ducklake"])
-            parity = "OK" if ok else f"FAIL: {reason[:60]}"
+            parity = "OK" if ok else "FAIL"
 
-        answers = "—"
-        if answers_con is not None:
+        answers, areason = "—", ""
+        ref_name = "file" if "file" in rows_by else next(iter(rows_by), None)
+        if answers_con is not None and ref_name:
             answer = get_answer(answers_con, q, sf)
             if answer is None:
-                answers = "n/a (sf)"
+                answers, areason = "n/a", f"нет эталона tpch_answers() для sf={sf_key(sf)}"
             else:
-                ok, reason = answer_matches(ref_rows, answer)
-                answers = "OK" if ok else f"FAIL: {reason[:60]}"
-
-        rec = {"q": q, "rows": len(ref_rows), "parity": parity, "answers": answers}
-        for name, prefix in (("file", "file"), ("ducklake", "lake")):
-            if times_by.get(name):
-                s = stats(times_by[name])
-                rec[f"{prefix}_p50_ms"], rec[f"{prefix}_min_ms"] = s["p50"], s["min"]
-            else:
-                rec[f"{prefix}_p50_ms"] = rec[f"{prefix}_min_ms"] = None
-        summary.append(rec)
-    return summary, detail
+                ok, areason = answer_matches(rows_by[ref_name], answer)
+                answers = "OK" if ok else "FAIL"
+        validation.append(
+            {
+                "query": label,
+                "parity": parity,
+                "parity_reason": reason[:120],
+                "answers": answers,
+                "answers_reason": areason[:120],
+            }
+        )
+    return detail, bench, validation
 
 
 # --------------------------------------------------------------- отчёт --------
-def build_summary_md(summary: list[dict], meta: dict) -> str:
-    file_p50s = [r["file_p50_ms"] for r in summary if r["file_p50_ms"] is not None]
-    lake_p50s = [r["lake_p50_ms"] for r in summary if r["lake_p50_ms"] is not None]
-    pok = sum(1 for r in summary if r["parity"] == "OK")
-    aok = sum(1 for r in summary if r["answers"] == "OK")
+def _target_stat(bench: list[dict], target: str, field: str, q: str):
+    for r in bench:
+        if r["query"] == q and r["target"] == target and r[field] is not None:
+            return r[field]
+    return None
+
+
+def build_summary_md(bench: list[dict], validation: list[dict], meta: dict) -> str:
+    file_p50s = [r["p50_time_ms"] for r in bench if r["target"] == "file" and r["p50_time_ms"]]
+    lake_p50s = [r["p50_time_ms"] for r in bench if r["target"] == "ducklake" and r["p50_time_ms"]]
+    file_avgs = [r["avg_time_ms"] for r in bench if r["target"] == "file" and r["avg_time_ms"]]
+    lake_avgs = [r["avg_time_ms"] for r in bench if r["target"] == "ducklake" and r["avg_time_ms"]]
+    pok = sum(1 for v in validation if v["parity"] == "OK")
+    aok = sum(1 for v in validation if v["answers"] == "OK")
+
     lines = [
         "# Нативный TPC-H: file vs DuckLake",
         "",
-        (
-            f"_commit `{meta['commit']}`, sf={meta['sf']}, N={meta['n']} итераций на цель, "
-            f"duckdb {meta.get('duckdb', '?')}_"
-        ),
+        "## Параметры прогона",
+        "",
+        "| Параметр | Значение |",
+        "|---|---|",
+        f"| запуск | {meta['run']} |",
+        f"| commit | `{meta['commit']}` |",
+        f"| sf | {meta['sf']} |",
+        f"| итераций на запрос (N) | {meta['n']} |",
+        f"| цель | {meta['target']} |",
+        f"| запросы | {meta['queries']} |",
+        f"| answers (tpch_answers) | {meta['answers']} |",
+        f"| duckdb | {meta['duckdb']} |",
         "",
         "22 запроса `tpch_queries()` к dbgen-данным без семантического слоя:",
         "file — dbgen-файл `warehouse/tpch_native_sf*.duckdb`; ducklake — та же схема",
-        "в каталоге lake (pg + parquet в MinIO, READ_ONLY). Протокол: docs/bench-native-tpch.md.",
+        "в каталоге lake (pg + parquet в MinIO, READ_ONLY). Протокол: docs/bench-native-tpch.md;",
+        "пошаговое воспроизведение: docs/user-guide-tpch-benchmark.md.",
         "",
         "| Q | rows | parity | answers | file p50 (min), мс | ducklake p50 (min), мс |",
         "|---|---|---|---|---|---|",
     ]
-    for r in summary:
-        f = "—" if r["file_p50_ms"] is None else f"{r['file_p50_ms']:.0f} ({r['file_min_ms']:.0f})"
-        l = "—" if r["lake_p50_ms"] is None else f"{r['lake_p50_ms']:.0f} ({r['lake_min_ms']:.0f})"
-        lines.append(f"| {r['q']} | {r['rows']} | {r['parity']} | {r['answers']} | {f} | {l} |")
-    lines += [
-        "",
-        (
-            f"**Итог**: Σp50 file {sum(file_p50s):.0f} / ducklake {sum(lake_p50s):.0f} мс; "
+    for v in validation:
+        q = v["query"]
+        f50, fmin = (
+            _target_stat(bench, "file", "p50_time_ms", q),
+            _target_stat(bench, "file", "min_time_ms", q),
+        )
+        l50, lmin = (
+            _target_stat(bench, "ducklake", "p50_time_ms", q),
+            _target_stat(bench, "ducklake", "min_time_ms", q),
+        )
+        rows = next(
+            (
+                r["rows"]
+                for r in bench
+                if r["query"] == q and r["target"] == ("file" if f50 is not None else "ducklake")
+            ),
+            0,
+        )
+        f = "—" if f50 is None else f"{f50:.0f} ({fmin:.0f})"
+        l = "—" if l50 is None else f"{l50:.0f} ({lmin:.0f})"
+        lines.append(f"| {q} | {rows} | {v['parity']} | {v['answers']} | {f} | {l} |")
+
+    if file_p50s and lake_p50s:
+        totals = (
+            f"**Итог**: Σp50 file {sum(file_p50s):.0f} / ducklake {sum(lake_p50s):.0f} мс"
+            f" (Σavg {sum(file_avgs):.0f} / {sum(lake_avgs):.0f}); "
             f"медиана p50 file {statistics.median(file_p50s):.1f} / "
-            f"ducklake {statistics.median(lake_p50s):.1f} мс; "
-            f"parity {pok}/{len(summary)}; answers {aok}/{len(summary)}."
-        ),
-        "",
-    ]
+            f"{statistics.median(lake_p50s):.1f} мс"
+        )
+    elif file_p50s:
+        totals = (
+            f"**Итог**: Σp50 file {sum(file_p50s):.0f} мс"
+            f" (Σavg {sum(file_avgs):.0f}); "
+            f"медиана p50 file {statistics.median(file_p50s):.1f} мс"
+        )
+    elif lake_p50s:
+        totals = (
+            f"**Итог**: Σp50 ducklake {sum(lake_p50s):.0f} мс"
+            f" (Σavg {sum(lake_avgs):.0f}); "
+            f"медиана p50 ducklake {statistics.median(lake_p50s):.1f} мс"
+        )
+    else:
+        totals = "**Итог**: успешных прогонов нет"
+    p_total = sum(1 for v in validation if v["parity"] != "—")
+    a_total = sum(1 for v in validation if v["answers"] != "—")
+    totals += (f"; parity {pok}/{p_total}" if p_total else "; parity —") + (
+        f"; answers {aok}/{a_total}." if a_total else "; answers —."
+    )
+    lines += ["", totals, ""]
     return "\n".join(lines)
 
 
-def write_run(detail, summary, queries: dict[int, str], run_dir: Path, meta: dict) -> None:
+def write_run(
+    detail, bench, validation, queries: dict[int, str], run_dir: Path, meta: dict
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
-    with (run_dir / "detail.csv").open("w", newline="", encoding="utf-8") as f:
+    with (run_dir / "benchmark_detailed_timing.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=DETAIL_COLUMNS)
         w.writeheader()
         w.writerows(detail)
-    with (run_dir / "summary.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=SUMMARY_CSV_COLUMNS)
+    with (run_dir / "benchmark_summary.csv").open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=BENCH_SUMMARY_COLUMNS)
         w.writeheader()
-        for r in summary:
+        for r in bench:
             w.writerow(
                 {
-                    k: (f"{r[k]:.1f}" if isinstance(r[k], float) else r[k])
-                    for k in SUMMARY_CSV_COLUMNS
+                    k: (f"{r[k]:.2f}" if isinstance(r.get(k), float) else r.get(k))
+                    for k in BENCH_SUMMARY_COLUMNS
                 }
             )
-    (run_dir / "tpch_queries.sql").write_text(
-        "".join(f"-- Q{q}\n{queries[q]};\n\n" for q in sorted(queries)), encoding="utf-8"
+    with (run_dir / "validation_summary.csv").open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=VALIDATION_COLUMNS)
+        w.writeheader()
+        w.writerows(validation)
+    (run_dir / "tpch_all_queries.sql").write_text(
+        "-- TPC-H Queries (Scale Factor: {})\n-- Target: {}\n-- Generated by harness.tpch_native (pocketstack №16)\n\n".format(
+            meta["sf"], meta["target"]
+        )
+        + "".join(f"-- Query {q}\n{queries[q]};\n\n" for q in sorted(queries)),
+        encoding="utf-8",
     )
-    (run_dir / "summary.md").write_text(build_summary_md(summary, meta), encoding="utf-8")
+    (run_dir / "summary.md").write_text(build_summary_md(bench, validation, meta), encoding="utf-8")
 
 
-def append_index(index: Path, meta: dict, summary: list[dict]) -> None:
+def append_index(index: Path, meta: dict, bench: list[dict], validation: list[dict]) -> None:
     header = (
-        "| run | commit | sf | parity | answers | file Σp50, мс | ducklake Σp50, мс |\n"
-        "|---|---|---|---|---|---|---|"
+        "| run | commit | sf | N | target | parity | answers | file Σp50, мс | ducklake Σp50, мс |\n"
+        "|---|---|---|---|---|---|---|---|---|"
+    )
+    file_sum = sum(r["p50_time_ms"] for r in bench if r["target"] == "file" and r["p50_time_ms"])
+    lake_sum = sum(
+        r["p50_time_ms"] for r in bench if r["target"] == "ducklake" and r["p50_time_ms"]
     )
     row = (
-        f"| {meta['run']} | `{meta['commit']}` | {meta['sf']} "
-        f"| {sum(1 for r in summary if r['parity'] == 'OK')}/{len(summary)} "
-        f"| {sum(1 for r in summary if r['answers'] == 'OK')}/{len(summary)} "
-        f"| {sum(r['file_p50_ms'] or 0 for r in summary):.0f} "
-        f"| {sum(r['lake_p50_ms'] or 0 for r in summary):.0f} |"
+        f"| {meta['run']} | `{meta['commit']}` | {meta['sf']} | {meta['n']} | {meta['target']} "
+        f"| {sum(1 for v in validation if v['parity'] == 'OK')}/{len(validation)} "
+        f"| {sum(1 for v in validation if v['answers'] == 'OK')}/{len(validation)} "
+        f"| {file_sum:.0f} | {lake_sum:.0f} |"
     )
     existing = index.read_text(encoding="utf-8") if index.exists() else ""
     if "| run | commit |" in existing:
@@ -400,10 +532,22 @@ def _git(root: Path) -> str:
         return "n/a"
 
 
+def _queries_label(ids: list[int]) -> str:
+    if ids == list(range(1, 23)):
+        return "Q1–Q22 (22)"
+    return "Q" + ", Q".join(str(i) for i in ids) + f" ({len(ids)})"
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Нативный TPC-H bench: file vs ducklake (№16)")
     parser.add_argument("sf", nargs="?", type=float, default=1.0, help="scale factor (default 1)")
     parser.add_argument("--n", type=int, default=3, help="итераций на запрос (default 3)")
+    parser.add_argument(
+        "--target",
+        choices=["file", "ducklake", "both"],
+        default="both",
+        help="окружение: file | ducklake | both (default both)",
+    )
     parser.add_argument(
         "--queries", type=str, help="список query_nr, напр. '1,5,9' (default все 22)"
     )
@@ -419,18 +563,23 @@ def main(argv=None) -> int:
     repo = here.parent.parent
     ids = [int(x) for x in args.queries.split(",")] if args.queries else list(range(1, 23))
 
-    bootstrap(repo, args.sf, lake=True)
+    bootstrap(repo, args.sf, lake=args.target != "file")
 
     if args.bootstrap_only:
         return 0
 
     tpch = duckdb.connect()
-    cons = {"file": open_file_target(repo, args.sf), "ducklake": open_lake_target()}
+    cons = {}
+    if args.target in ("file", "both"):
+        cons["file"] = open_file_target(repo, args.sf)
+    if args.target in ("ducklake", "both"):
+        cons["ducklake"] = open_lake_target()
     run_id = datetime.datetime.now().strftime("%Y-%m-%dT%H%M%S")
     try:
-        summary, detail = run_benchmark(
+        queries = get_queries(tpch, ids)
+        detail, bench, validation = run_benchmark(
             cons,
-            get_queries(tpch, ids),
+            queries,
             n=args.n,
             sf=args.sf,
             answers_con=None if args.skip_answers else tpch,
@@ -440,11 +589,18 @@ def main(argv=None) -> int:
             "commit": _git(repo),
             "sf": sf_key(args.sf),
             "n": args.n,
+            "target": {"file": "file", "ducklake": "ducklake", "both": "file + ducklake"}[
+                args.target
+            ],
+            "queries": _queries_label(ids),
+            "answers": (
+                "выкл (--skip-answers)" if args.skip_answers else f"вкл (sf={sf_key(args.sf)})"
+            ),
             "duckdb": duckdb.__version__,
         }
         run_dir = repo / "results" / "native" / run_id
-        write_run(detail, summary, get_queries(tpch, ids), run_dir, meta)
-        append_index(repo / "results" / "native" / "index.md", meta, summary)
+        write_run(detail, bench, validation, queries, run_dir, meta)
+        append_index(repo / "results" / "native" / "index.md", meta, bench, validation)
     finally:
         for con in cons.values():
             con.close()
@@ -452,7 +608,11 @@ def main(argv=None) -> int:
 
     print((run_dir / "summary.md").read_text(encoding="utf-8"))
     print(f"Прогон: {run_dir}\nЖурнал: {repo / 'results' / 'native' / 'index.md'}")
-    ok = all(r["parity"] == "OK" and not r["answers"].startswith("FAIL") for r in summary)
+    ok = (
+        all(v["parity"] in ("OK", "—") for v in validation)
+        and all(v["answers"] in ("OK", "n/a", "—") for v in validation)
+        and all(r["status"] == "success" for r in bench)
+    )
     return 0 if ok else 1
 
 
