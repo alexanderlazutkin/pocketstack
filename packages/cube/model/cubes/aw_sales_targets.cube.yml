@@ -7,7 +7,11 @@ cubes:
       Grain: (employee_key, date_key квартала), 1 000 строк. Квота — план,
       USD; сравнение план/факт — по employee_key и году/кварталу против
       aw_reseller_sales (продавцы). Соответствие SSAS: MG Sales Targets.
-    sql: SELECT * FROM aw_dw2019_ru.dbo."FactSalesQuota"
+    sql: |
+      SELECT q.*, e."SalesTerritoryKey", te."SalesTerritoryCountry" AS "EmpTerritoryCountry"
+      FROM aw_dw2019_ru.dbo."FactSalesQuota" q
+      JOIN aw_dw2019_ru.dbo."DimEmployee" e ON q."EmployeeKey" = e."EmployeeKey"
+      JOIN aw_dw2019_ru.dbo."DimSalesTerritory" te ON e."SalesTerritoryKey" = te."SalesTerritoryKey"
 
     joins:
       - name: aw_dim_employee
@@ -15,6 +19,12 @@ cubes:
         relationship: many_to_one
       - name: aw_dim_date
         sql: '{CUBE}."DateKey" = {aw_dim_date}."DateKey"'
+        relationship: many_to_one
+      # Ф11.1: территория СОТРУДНИКА (referenced dim, как в SSAS Sales Targets) —
+      # конформинг плана с aw_reseller_sales (канон SSAS: квота — через
+      # сотрудника, факт — по территории сделки).
+      - name: aw_dim_sales_territory
+        sql: '{CUBE}."SalesTerritoryKey" = {aw_dim_sales_territory}."SalesTerritoryKey"'
         relationship: many_to_one
 
     measures:
@@ -32,6 +42,22 @@ cubes:
         type: number
         primary_key: true
         description: Суррогатный ключ строки квоты.
+      - name: sales_territory_key
+        title: Ключ территории (сотрудника)
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        description: |
+          Территория СОТРУДНИКА (DimEmployee.SalesTerritoryKey, подмешана в
+          SQL куба) — referenced-измерение как в SSAS MG Sales Targets;
+          конформинг с фактом опта для план/факт разрезов (Ф11.1).
+      - name: emp_territory_country
+        title: Страна территории сотрудника
+        sql: '{CUBE}."EmpTerritoryCountry"'
+        type: string
+        description: |
+          Страна территории СОТРУДНИКА, предвычислена в SQL куба (Ф11.1):
+          страна-ось недоступна в blending как общий dim (разные join-пути
+          сторон), поэтому передаётся фильтром в CTE каждой стороны.
       - name: employee_key
         title: Ключ сотрудника
         sql: '{CUBE}."EmployeeKey"'

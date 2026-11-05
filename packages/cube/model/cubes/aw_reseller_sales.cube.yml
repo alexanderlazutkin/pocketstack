@@ -8,7 +8,10 @@ cubes:
       (sales_order_number, sales_order_line_number), 60 855 строк.
       Скидки: UnitPriceDiscountPct — доля (0–0.15), DiscountAmount — USD.
       Соответствие SSAS: MG Reseller Sales + Reseller Orders.
-    sql: SELECT * FROM aw_dw2019_ru.dbo."FactResellerSales"
+    sql: |
+      SELECT r.*, t."SalesTerritoryCountry" AS "DealTerritoryCountry"
+      FROM aw_dw2019_ru.dbo."FactResellerSales" r
+      JOIN aw_dw2019_ru.dbo."DimSalesTerritory" t ON r."SalesTerritoryKey" = t."SalesTerritoryKey"
 
     joins:
       - name: aw_dim_product
@@ -174,6 +177,14 @@ cubes:
         description: Выручка опта / число активных продавцов, USD (аналог SSAS [Revenue per Salesperson]).
 
     dimensions:
+      - name: deal_territory_country
+        title: Страна территории сделки
+        sql: '{CUBE}."DealTerritoryCountry"'
+        type: string
+        description: |
+          Страна по SalesTerritoryKey СДЕЛКИ (канон SSAS MG Reseller Sales),
+          предвычислена в SQL куба (Ф11.1) — фильтр для blending-CTE факта.
+          Территория СОТРУДНИКА (для паритета план/факт) — aw_quota_vs_actual.
       - name: sales_order_number
         title: Номер заказа
         sql: '{CUBE}."SalesOrderNumber"'

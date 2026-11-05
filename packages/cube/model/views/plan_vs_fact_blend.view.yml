@@ -23,16 +23,23 @@ views:
       # 1.8.13: many_to_many relationship выпилен из схемы-компилятора;
       # несвязанные корни тоже не поддерживаются. Сведение — звезда с корнем
       # aw_dim_date (рёбра dim→факт объявлены в aw_dim_date).
+      # Страна НЕ ось сведения: у сторон разные join-пути к территории
+      # (квота — через сотрудника, факт — по сделке), единый dim-узел не
+      # сводится (дубли/потери — §8.2). Вместо оси — предвычисленные члены
+      # каждой стороны, применяются как ФИЛЬТРЫ (pushdown в свой CTE).
       - join_path: aw_dim_date
         includes:
           - calendar_year
           - calendar_quarter
+          - month_of_year
       - join_path: aw_dim_date.aw_sales_targets
         includes:
           - sales_amount_quota
+          - emp_territory_country
       - join_path: aw_dim_date.aw_reseller_sales
         includes:
           - sales_amount
+          - deal_territory_country
 
     measures:
       - name: completion_pct

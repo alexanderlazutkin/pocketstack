@@ -661,3 +661,151 @@ class TestPlanVsFactBlend:
                 assert c is None
             else:
                 assert float(c) == pytest.approx(float(a) / float(q), rel=1e-6), r
+
+    def test_territory_country_filters(self, aw, rest):
+        """Ф11.1: страна — раздельные запросы по сторонам (канон SSAS:
+        квота через emp_territory_country, факт через deal_territory_country).
+        Фильтр каждой стороны в ОДНОМЕРНОМ запросе точен (pushdown в свой CTE).
+        """
+        country = "Canada"
+        got_q = _m(
+            rest(
+                {
+                    "measures": [f"{self.V}.sales_amount_quota"],
+                    "dimensions": [f"{self.V}.calendar_year"],
+                    "filters": [
+                        {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]},
+                        {"member": f"{self.V}.emp_territory_country", "operator": "equals", "values": [country]},
+                    ],
+                }
+            ),
+            f"{self.V}.sales_amount_quota",
+        )
+        got_a = _m(
+            rest(
+                {
+                    "measures": [f"{self.V}.sales_amount"],
+                    "dimensions": [f"{self.V}.calendar_year"],
+                    "filters": [
+                        {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]},
+                        {"member": f"{self.V}.deal_territory_country", "operator": "equals", "values": [country]},
+                    ],
+                }
+            ),
+            f"{self.V}.sales_amount",
+        )
+        ref_q = float(
+            aw.execute(
+                'SELECT SUM(q."SalesAmountQuota") FROM aw.dbo."FactSalesQuota" q '
+                'JOIN aw.dbo."DimEmployee" e ON q."EmployeeKey" = e."EmployeeKey" '
+                'JOIN aw.dbo."DimSalesTerritory" t ON e."SalesTerritoryKey" = t."SalesTerritoryKey" '
+                'WHERE q."CalendarYear" = 2012 AND t."SalesTerritoryCountry" = ?',
+                [country],
+            ).fetchone()[0]
+        )
+        ref_a = float(
+            aw.execute(
+                'SELECT SUM(r."SalesAmount") FROM aw.dbo."FactResellerSales" r '
+                'JOIN aw.dbo."DimSalesTerritory" t ON r."SalesTerritoryKey" = t."SalesTerritoryKey" '
+                'WHERE r."OrderDateKey"//10000 = 2012 AND t."SalesTerritoryCountry" = ?',
+                [country],
+            ).fetchone()[0]
+        )
+        assert got_q == pytest.approx(ref_q, abs=TOL)
+        assert got_a == pytest.approx(ref_a, abs=TOL)
+
+    def test_territory_filters_together_lose_rows(self, aw, rest):
+        """Фиксация наблюдаемого бага 1.8.13 (§8.2, ограничение 9): оба
+        country-фильтра в ОДНОМ запросе протаскиваются во все key-CTE —
+        чужой фильтр режет сторону через NULL-семантику LEFT JOIN, факт
+        теряет строки. После апгрейда Cube (multi_stage / изоляция фильтров)
+        — заменить этот тест на строгий паритет."""
+        country = "Canada"
+        got_a = _m(
+            rest(
+                {
+                    "measures": [f"{self.V}.sales_amount"],
+                    "dimensions": [f"{self.V}.calendar_year"],
+                    "filters": [
+                        {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]},
+                        {"member": f"{self.V}.emp_territory_country", "operator": "equals", "values": [country]},
+                        {"member": f"{self.V}.deal_territory_country", "operator": "equals", "values": [country]},
+                    ],
+                }
+            ),
+            f"{self.V}.sales_amount",
+        )
+        ref_a = float(
+            aw.execute(
+                'SELECT SUM(r."SalesAmount") FROM aw.dbo."FactResellerSales" r '
+                'JOIN aw.dbo."DimSalesTerritory" t ON r."SalesTerritoryKey" = t."SalesTerritoryKey" '
+                'WHERE r."OrderDateKey"//10000 = 2012 AND t."SalesTerritoryCountry" = ?',
+                [country],
+            ).fetchone()[0]
+        )
+        assert got_a != pytest.approx(ref_a, abs=TOL), (
+            "если факт сошёлся — Cube починил изоляцию фильтров, "
+            "обнови §8.2 и этот тест"
+        )
+        assert got_a < ref_a  # наблюдаемое: потеря строк, не задвоение
+    def test_month_slice_grain_distortion(self, aw, rest):
+        """Ф11.1, демонстрация ловушки grain: ось «месяц» в blending приписывает
+        ВСЮ квартальную квоту к конкретному месяцу по DateKey строки квоты
+        (источник AW датирован «примерно квартальными» днями: 20110331,
+        20110701, 20101229…) — вместо NULL вне grain плана. Σ года при этом
+        сохраняется (искажение семантики, не арифметики). Правильное
+        поведение (план NULL на любом месяце) — mixed-grain куб (пример 1)."""
+        rows = rest(
+            {
+                "measures": [f"{self.V}.sales_amount_quota", f"{self.V}.sales_amount"],
+                "dimensions": [f"{self.V}.calendar_year", f"{self.V}.month_of_year"],
+                "filters": [
+                    {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]}
+                ],
+            }
+        )
+        quota_by_month = {
+            int(r[f"{self.V}.month_of_year"]): float(r[f"{self.V}.sales_amount_quota"])
+            for r in rows
+            if r.get(f"{self.V}.sales_amount_quota") is not None
+        }
+        ref_q_quarters = {
+            q: float(v)
+            for q, v in aw.execute(
+                'SELECT "CalendarQuarter", SUM("SalesAmountQuota") '
+                'FROM aw.dbo."FactSalesQuota" WHERE "CalendarYear" = 2012 GROUP BY 1'
+            ).fetchall()
+        }
+        assert ref_q_quarters, "в 2012 должны быть квоты"
+        # Σ месяцев == Σ года: арифметика цела
+        assert sum(quota_by_month.values()) == pytest.approx(sum(ref_q_quarters.values()), abs=TOL)
+        # каждый месяц с квотой лежит внутри своего квартала, и в квартале
+        # ровно один такой месяц, вмещающий ВСЮ квартальную квоту
+        for month, v in quota_by_month.items():
+            quarter = (month - 1) // 3 + 1
+            months_of_quarter = {m for m in quota_by_month if (m - 1) // 3 + 1 == quarter}
+            assert months_of_quarter == {month}
+            assert v == pytest.approx(ref_q_quarters[quarter], abs=TOL), (
+                f"месяц {month}: вся квота Q{quarter} в одном месяце"
+            )
+        # контраст: mixed-grain куб (пример 1) на любом месяце — план NULL
+        mixed = rest(
+            {
+                "measures": ["aw_quota_vs_actual.sales_amount_quota"],
+                "dimensions": [
+                    "aw_quota_vs_actual.calendar_year",
+                    "aw_quota_vs_actual.month_number",
+                ],
+                "filters": [
+                    {
+                        "member": "aw_quota_vs_actual.calendar_year",
+                        "operator": "equals",
+                        "values": ["2012"],
+                    }
+                ],
+            }
+        )
+        monthly_mixed = [r for r in mixed if r.get("aw_quota_vs_actual.month_number") is not None]
+        assert monthly_mixed
+        for r in monthly_mixed:
+            assert r.get("aw_quota_vs_actual.sales_amount_quota") is None
