@@ -1,6 +1,6 @@
 # pocketstack verify-report
 
-_сгенерирован: 2026-10-31T14:57:30, commit `ac6b505`_
+_сгенерирован: 2026-11-05T17:47:10, commit `5f97567`_
 
 | Вопрос | rows: REST↔SQLAPI↔REF | SQL-hash (N прогонов) | ground truth (лог DuckDB) | Evidence |
 |---|---|---|---|---|
@@ -17,5 +17,8 @@ _сгенерирован: 2026-10-31T14:57:30, commit `ac6b505`_
 | `revenue_1996_by_month` | ✅ | ✅ `743e313c8ad2` | ✅ | [дашборд](http://localhost:3000/verification#revenue_1996_by_month) |
 | `top5_customer_nations_by_revenue` | ✅ | ✅ `2adc51b9a449` | ✅ | [дашборд](http://localhost:3000/verification#top5_customer_nations_by_revenue) |
 | `sales_mov_1997` | ✅ | ✅ `687d9913f545` | ✅ | [дашборд](http://localhost:3000/verification#sales_mov_1997) |
+| `aw_fact_by_quarter_2012` | ✅ | ✅ `0e0ca2d72d65` | ✅ | [дашборд](http://localhost:3000/verification#aw_fact_by_quarter_2012) |
+| `aw_quota_vs_actual_quarters_2012` | ✅ | ✅ `ee4118e4e04a` | ✅ | [дашборд](http://localhost:3000/verification#aw_quota_vs_actual_quarters_2012) |
+| `aw_quota_vs_actual_months_2012_q1` | ✅ | ✅ `1a1d6ab7875a` | ✅ | [дашборд](http://localhost:3000/verification#aw_quota_vs_actual_months_2012_q1) |
 
-**Итог**: rows-паритет 13/13, SQL-детерминизм 13/13, ground truth 13/13.
+**Итог**: rows-паритет 16/16, SQL-детерминизм 16/16, ground truth 16/16.

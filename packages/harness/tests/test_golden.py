@@ -3,8 +3,8 @@
 from harness.golden import GOLDEN
 
 
-def test_has_13_questions():
-    assert len(GOLDEN) == 13
+def test_has_16_questions():
+    assert len(GOLDEN) == 16  # 13 TPC-H (sales/sales_mov) + 3 AW план/факт (Ф11)
 
 
 def test_unique_ids():
@@ -23,8 +23,8 @@ def test_rest_query_shape():
         q = g["rest"]
         assert q.get("measures"), g["id"]
         for member in q["measures"] + q.get("dimensions", []):
-            assert member.startswith(("sales.", "sales_mov.")), (
-                f"{g['id']}: {member} не из view sales / куба sales_mov"
+            assert member.startswith(("sales.", "sales_mov.", "aw_quota_vs_actual.")), (
+                f"{g['id']}: {member} не из view sales / куба sales_mov / aw_quota_vs_actual"
             )
 
 
@@ -32,14 +32,14 @@ def test_sqlapi_shape():
     for g in GOLDEN:
         s = g["sqlapi"].strip()
         assert s.upper().startswith("SELECT"), g["id"]
-        assert " FROM sales" in s, g["id"]
+        assert " FROM sales" in s or " FROM aw_quota_vs_actual" in s, g["id"]
 
 
 def test_reference_shape():
     for g in GOLDEN:
         r = g["reference"].strip().upper()
-        assert r.startswith(("SELECT", "WITH")), g["id"]
-        assert "MARTS.FACT_SALES" in r, g["id"]
+        assert r.startswith(("SELECT", "WITH", "ATTACH")), g["id"]
+        assert "MARTS.FACT_SALES" in r or "AW_REF.DBO." in r, g["id"]
 
 
 def test_key_cols_positive():

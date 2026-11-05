@@ -1,6 +1,7 @@
 """Клиенты трёх путей выполнения: Cube REST, Cube SQL API (pg-wire), DuckDB reference."""
 
 import time
+from pathlib import Path
 
 import requests
 
@@ -57,6 +58,9 @@ def sqlapi_query(conn, sql: str) -> list[tuple]:
 
 
 def reference_query(con, sql: str) -> list[tuple]:
+    """Эталонный SQL к DuckDB; {{AW_DB}} → путь aw_dw2019_ru.duckdb (cwd-независимо)."""
+    repo = Path(__file__).resolve().parents[3]
+    sql = sql.replace("{{AW_DB}}", str(repo / "warehouse" / "aw_dw2019_ru.duckdb"))
     return con.execute(sql).fetchall()
 
 

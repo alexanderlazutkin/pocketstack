@@ -222,4 +222,131 @@ ORDER BY cur.month
 """,
         "key_cols": 4,
     },
+    {
+        # Ф11 Г4, базлайн: факт-запрос (только actual) по кварталам 2012.
+        "id": "aw_fact_by_quarter_2012",
+        "question": "AW: оптовые продажи по кварталам 2012 (только факт)?",
+        "rest": {
+            "measures": ["aw_quota_vs_actual.sales_amount"],
+            "dimensions": [
+                "aw_quota_vs_actual.calendar_year",
+                "aw_quota_vs_actual.calendar_quarter",
+            ],
+            "filters": [
+                {
+                    "member": "aw_quota_vs_actual.calendar_year",
+                    "operator": "equals",
+                    "values": ["2012"],
+                }
+            ],
+            "order": {"aw_quota_vs_actual.calendar_quarter": "asc"},
+        },
+        "sqlapi": "SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, "
+        "SUM(aw_quota_vs_actual.sales_amount) FROM aw_quota_vs_actual "
+        "WHERE aw_quota_vs_actual.calendar_year = 2012 GROUP BY 1, 2 "
+        "ORDER BY aw_quota_vs_actual.calendar_quarter",
+        "reference": """
+ATTACH IF NOT EXISTS '{{AW_DB}}' AS aw_ref (READ_ONLY);
+SELECT r."OrderDateKey"//10000, (((r."OrderDateKey"//100)%100)+2)//3,
+       CAST(SUM(r."SalesAmount") AS DOUBLE)
+FROM aw_ref.dbo."FactResellerSales" r
+WHERE r."OrderDateKey"//10000 = 2012
+GROUP BY 1, 2 ORDER BY 2
+""",
+        "key_cols": 2,
+    },
+    {
+        # Ф11 Г4: план-факт запрос по кварталам 2012 (обе меры, mixed grain).
+        "id": "aw_quota_vs_actual_quarters_2012",
+        "question": "AW: план и факт по кварталам 2012?",
+        "rest": {
+            "measures": [
+                "aw_quota_vs_actual.sales_amount_quota",
+                "aw_quota_vs_actual.sales_amount",
+            ],
+            "dimensions": [
+                "aw_quota_vs_actual.calendar_year",
+                "aw_quota_vs_actual.calendar_quarter",
+            ],
+            "filters": [
+                {
+                    "member": "aw_quota_vs_actual.calendar_year",
+                    "operator": "equals",
+                    "values": ["2012"],
+                }
+            ],
+            "order": {"aw_quota_vs_actual.calendar_quarter": "asc"},
+        },
+        "sqlapi": "SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, "
+        "SUM(aw_quota_vs_actual.sales_amount_quota), SUM(aw_quota_vs_actual.sales_amount) "
+        "FROM aw_quota_vs_actual WHERE aw_quota_vs_actual.calendar_year = 2012 "
+        "GROUP BY 1, 2 ORDER BY aw_quota_vs_actual.calendar_quarter",
+        "reference": """
+ATTACH IF NOT EXISTS '{{AW_DB}}' AS aw_ref (READ_ONLY);
+WITH quota AS (
+  SELECT "CalendarYear" y, "CalendarQuarter" qtr,
+         CAST(SUM("SalesAmountQuota") AS DOUBLE) v
+  FROM aw_ref.dbo."FactSalesQuota" WHERE "CalendarYear" = 2012 GROUP BY 1, 2
+), actual AS (
+  SELECT "OrderDateKey"//10000 y, (((("OrderDateKey"//100)%100)+2)//3) qtr,
+         CAST(SUM("SalesAmount") AS DOUBLE) v
+  FROM aw_ref.dbo."FactResellerSales"
+  WHERE "OrderDateKey"//10000 = 2012 GROUP BY 1, 2
+)
+SELECT COALESCE(q.y, a.y), COALESCE(q.qtr, a.qtr), q.v, a.v
+FROM quota q FULL OUTER JOIN actual a ON q.y = a.y AND q.qtr = a.qtr
+ORDER BY 2
+""",
+        "key_cols": 2,
+    },
+    {
+        # Ф11 Г4 + Г3: срез месяцем (Q1 2012) — план-строки month NULL.
+        "id": "aw_quota_vs_actual_months_2012_q1",
+        "question": "AW: план и факт по месяцам Q1 2012 (план на месяце NULL)?",
+        "rest": {
+            "measures": [
+                "aw_quota_vs_actual.sales_amount_quota",
+                "aw_quota_vs_actual.sales_amount",
+            ],
+            "dimensions": [
+                "aw_quota_vs_actual.calendar_year",
+                "aw_quota_vs_actual.calendar_quarter",
+                "aw_quota_vs_actual.month_number",
+            ],
+            "filters": [
+                {
+                    "member": "aw_quota_vs_actual.calendar_year",
+                    "operator": "equals",
+                    "values": ["2012"],
+                },
+                {
+                    "member": "aw_quota_vs_actual.calendar_quarter",
+                    "operator": "equals",
+                    "values": ["1"],
+                },
+            ],
+        },
+        "sqlapi": "SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, "
+        "aw_quota_vs_actual.month_number, SUM(aw_quota_vs_actual.sales_amount_quota), "
+        "SUM(aw_quota_vs_actual.sales_amount) FROM aw_quota_vs_actual "
+        "WHERE aw_quota_vs_actual.calendar_year = 2012 "
+        "AND aw_quota_vs_actual.calendar_quarter = 1 GROUP BY 1, 2, 3",
+        "reference": """
+ATTACH IF NOT EXISTS '{{AW_DB}}' AS aw_ref (READ_ONLY);
+SELECT * FROM (
+  SELECT "CalendarYear", "CalendarQuarter", NULL::BIGINT AS m,
+         CAST(SUM("SalesAmountQuota") AS DOUBLE) AS quota, NULL::DOUBLE AS actual
+  FROM aw_ref.dbo."FactSalesQuota"
+  WHERE "CalendarYear" = 2012 AND "CalendarQuarter" = 1
+  GROUP BY 1, 2
+  UNION ALL
+  SELECT "OrderDateKey"//10000, (((("OrderDateKey"//100)%100)+2)//3),
+         ("OrderDateKey"//100)%100, NULL::DOUBLE, CAST(SUM("SalesAmount") AS DOUBLE)
+  FROM aw_ref.dbo."FactResellerSales"
+  WHERE "OrderDateKey"//10000 = 2012 AND (((("OrderDateKey"//100)%100)+2)//3) = 1
+  GROUP BY 1, 2, 3
+)
+""",
+        "key_cols": 3,
+    },
 ]
