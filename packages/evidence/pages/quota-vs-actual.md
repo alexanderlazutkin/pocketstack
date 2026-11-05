@@ -40,6 +40,7 @@ where year = ${inputs.year.value} and country = '${inputs.country.value}'
 <BigValue data={kpi} value=actual fmt=num0 title="Факт (опт), USD" />
 <BigValue data={kpi} value=variance fmt=num0 title="Δ Факт−план, USD" />
 <BigValue data={kpi} value=completion_pct fmt=pct1 title="Выполнение плана" />
+<BigValue data={kpi} value=quota_share fmt=pct0 title="Доля от плана (год: нет плана)" />
 
 ## По кварталам — общая гранулярность плана и факта
 
@@ -57,29 +58,47 @@ order by quarter
   <Column id=actual title="Факт (опт)" fmt=num0 align=right />
   <Column id=variance title="Δ Факт−план" fmt=num0 align=right contentType=colorscale scaleColor=business />
   <Column id=completion_pct title="Выполнение" fmt=pct1 align=right contentType=colorscale scaleColor=business />
+  <Column id=quota_share title="Доля от плана" fmt=pct0 align=right />
 </DataTable>
+
+*Доля от плана: на квартале — 100% (квота целиком назначена кварталу), на
+годе — NULL (годового плана нет): поуровневые определения, в источниках как
+`SUM(qq)/SUM(qq)` и `NULL` (Ф11.2, раздел «По месяцам» ниже).*
 
 *Квота есть только там, где задана в FactSalesQuota (например, Q4 последних
 лет может быть без плана — тогда факт есть, план NULL).*
 
 ## По месяцам — гранулярность ниже плана
 
-```sql months
-select * from cube.aw_quota_vs_actual_months
-where year = ${inputs.year.value} and country = '${inputs.country.value}'
-order by quarter, month nulls first
+```sql months_j
+select m.*, p.fact_share, p.cum_share
+from cube.aw_quota_vs_actual_months m
+left join cube.aw_pace_months p
+  on p.year = m.year and p.quarter = m.quarter
+ and p.month = m.month and p.country = m.country
+where m.year = ${inputs.year.value} and m.country = '${inputs.country.value}'
+order by m.quarter, m.month nulls first
 ```
 
-<DataTable data={months} rows=all>
+<DataTable data={months_j} rows=all>
   <Column id=quarter title="Квартал" align=right />
   <Column id=month_name title="Месяц" />
   <Column id=quota title="План (квота)" fmt=num0 align=right />
   <Column id=actual title="Факт (опт)" fmt=num0 align=right />
+  <Column id=fact_share title="Доля факт/квота кв." fmt=pct1 align=right />
+  <Column id=cum_share title="Кумулятив года" fmt=pct1 align=right contentType=colorscale scaleColor=business />
 </DataTable>
 
 Строка **без месяца** — план-строка квартала (гранулярность квоты).
 В строках месяцев план всегда пуст: квартальную квоту нельзя размазать по
 месяцам — она появляется только при свёртке до квартала и выше.
+
+**Доля факта от плана** (куб `aw_quota_pace`, предагрегированная сетка
+сотрудник×месяц): месяц — `факт_м / квота квартала` (Σ месяцев квартала ==
+выполнение квартала), квартал — 100%, год — NULL (годового плана нет).
+Кумулятив года — `Σфакт янв..м / квота года`, к декабрю == выполнению года.
+Поуровневые определения (100%/NULL) в Cube 1.8 мерой не выражаются —
+собраны SQL-выражениями источников (SSAS Scope-эмуляция, §8.2).
 
 <Details title="Как считается (логика mixed-grain куба)">
   - Куб `aw_quota_vs_actual` хранит **строки двух гранулярностей**; обе
