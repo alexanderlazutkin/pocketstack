@@ -251,7 +251,7 @@ Cube REST/SQL API → opencode (Cube MCP) / Evidence
 
 Итого оценка: ~8–9 рабочих дней.
 
-## 8.1. Ф11 (добавлено 2026-10-31): план/факт — бэклог-2 plan.md №15 на данных AW
+## 8.1. Ф11 (добавлено 2026-10-31, РЕАЛИЗОВАНО 2026-11-05): план/факт — бэклог-2 plan.md №15 на данных AW
 
 Рескоуп: задача plan.md №15 («второй факт другой гранулярности на conformed
 dims») реализуется ЗДЕСЬ на данных AW — синтетический генератор (`gen_plan.py`
@@ -259,31 +259,42 @@ dims») реализуется ЗДЕСЬ на данных AW — синтет�
 
 | Что | AW-данные |
 |---|---|
-| План (грубая гранулярность) | `FactSalesQuota` → `aw_sales_targets`: сотрудник × квартал, USD |
+| План (грубая гранулярность) | `FactSalesQuota` → `aw_sales_targets`: сотрудник × квартал, USD (2010–2013, 163 строки) |
 | Факт (детальная гранулярность) | `FactResellerSales` → `aw_reseller_sales`: строка заказа (день), только продавцы (17) |
 | Conformed dims | `aw_dim_employee`, `aw_dim_date` (уровень квартала), `aw_dim_sales_territory` (через сотрудника) |
 
-Реализация: куб `aw_quota_vs_actual` (grain: employee × quarter) — SQL джойнит
-ПРЕДАГРЕГИРОВАННЫЕ стороны (анти-фанаут, приём Ф3): quota (SUM факта квот) +
-actual_sales/gross_profit (SUM опта по кварталам заказа) + производные
-`completion_pct` / `variance` / `variance_pct` (dividing measures). Срез ниже
+Реализация: куб `aw_quota_vs_actual` — **смешанный grain** (развитие приёма Ф3):
+план-строки employee×quarter (месяц NULL, `RowKey` «q:*») UNION ALL факт-строки
+employee×month (квота NULL, «a:*») — обе стороны предагрегированы в SQL куба,
+анти-фанаут по построению; суррогатный `RowKey` — primary key (требование Cube
+при joins). Меры: `sales_amount_quota`, `sales_amount`, `gross_profit`,
+`variance`, `completion_pct` и `variance_pct` (деление сумм). Территория —
+conformed через сотрудника (DimEmployee→DimSalesTerritory, не территория
+сделки); `sales_territory_country` предвычислена в SQL куба, т.к. SQL API 1.8.13
+не резолвит join-размерности (приём aw_summary_by_year). Срез ниже
 гранулярности плана (месяц/день) — план NULL, факт есть (Г3).
 
-Гипотезы (перенос Г1–Г5 из docs/fact-plan.md):
-- Г1: join факта (день) с планом (квартал) через conformed dims не дублирует
-  и не теряет строки — паритет REF SQL ↔ Cube;
-- Г2: `completion_pct` корректен на любом срезе ≥ квартала (деление сумм,
-  не avg отношений);
-- Г3: срез ниже квартала — план NULL, факт есть, мусора нет;
-- Г4: latency план-факт запросов сопоставима с факт-запросами (bench, N=3 p50);
-- Г5: RBAC на план-факт — после включения access_policy для aw_* (⏸ вместе
-  с cell-security, см. §11).
+Гипотезы — итоги (2026-11-05):
+- Г1 ✅ паритет REF ↔ Cube без потерь/дублей: тоталы, годы, employee×quarter,
+  страны (golden `TestQuotaVsActual`, 7 тестов; bench 16/16 parity);
+- Г2 ✅ `completion_pct` = Σфакт/Σквота на любом срезе ≥ квартала; тест
+  фиксирует, что деление сумм ≠ среднее квартальных отношений;
+- Г3 ✅ срез месяцем: план NULL, факт есть; Σ месяцев квартала == факту
+  квартала (REST и SQL API);
+- Г4 ✅ latency сопоставима: REST p50 факт 13 мс vs план-факт 12 (кварталы) /
+  15 (месяцы) мс, SQL API 58/57/56 мс — bench-прогон
+  `results/runs/2026-11-05T174711` (16 вопросов, N=3);
+- Г5 ⏸ RBAC — вместе с cell-security (§11).
 
-Верификация: golden-тесты в harness (5–6 вопросов: по кварталам года, по
-сотрудникам, выполнение по территориям, итоговая сверка Σ, срез месяцем —
-план NULL); Evidence-блок на /aw-ssas-vs-cube; bench-запуск по bench-protocol.
-Критерий готовности: `just verify` зелёный, Г1–Г4 подтверждены (Г5 — ⏸),
-результаты в results/ + итог в plan.md §9 №15.
+Верификация: 7 golden-тестов `test_aw_golden.py::TestQuotaVsActual` +
+3 bench-вопроса в harness.golden (`aw_fact_by_quarter_2012`,
+`aw_quota_vs_actual_quarters_2012`, `aw_quota_vs_actual_months_2012_q1`;
+REF-путь `{{AW_DB}}` подставляет `reference_query`). Evidence: дашборд
+`/quota-vs-actual` (строки год/квартал/месяц; метрики план+факт+completion;
+фильтры год × страна; данные материализованы в sources
+`aw_quota_vs_actual_{kpi,quarters,months}.sql` — страничные запросы
+Evidence-runtime выполняет в локальном duckdb поверх sources) + 3 блока на
+`/verification`. Критерий готовности: `just verify` 141 passed — выполнен.
 
 ## 9. Верификация
 
