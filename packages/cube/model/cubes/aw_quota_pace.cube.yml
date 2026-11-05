@@ -1,0 +1,165 @@
+# Ф11.2: темп выполнения плана — доли факта от квоты на месячной оси.
+# Grain: сотрудник × месяц (ЧИСТЫЙ, без mixed). SQL предвычисляет:
+#   SalesAmount      — факт месяца (агрегат строк заказов);
+#   QuarterQuota     — квота квартала этого месяца (1:1 к строке месяца,
+#                      на срезе месяца кратности нет);
+#   YearQuota        — годовая квота сотрудника (Σ квартальных);
+#   CumYearSales     — накопленный факт с января года (оконная функция).
+# Меры-dividing (деление СУММ, срез месяца):
+#   fact_share_of_quarter_quota = Σфакт_м / Σквота_Q  (Σ месяцев квартала
+#     == выполнение квартала);
+#   cum_share_of_year_quota = Σcum_м / Σквота_года (прогресс года;
+#     cum(декабрь) == completion года).
+# «100% на квартале / NULL на годе» — поуровневые определения (SSAS Scope):
+# одной мерой Cube 1.8 не выражаются, собираются SQL-выражениями источников
+# (SUM(qq)/SUM(qq), NULL) — docs/ssasmd-cube-migration.md §8.2.
+# Срезы выше месяца для этих мер НЕ определены (кратность строк знаменателя).
+cubes:
+  - name: aw_quota_pace
+    title: Темп выполнения плана (доли факта от квоты)
+    description: |
+      Доли факта от плана на месячной оси: факт месяца к квоте квартала
+      (вклад месяца в квартальный план) и накопительный прогресс года к
+      годовой квоте. Предагрегированный grain сотрудник×месяц; квоты
+      вшиты скалярами (территория — сотрудника, как aw_quota_vs_actual).
+      Дашборды: /quota-vs-actual, /quota-vs-actual-blend.
+    sql: |
+      WITH sales AS (
+        SELECT
+          r."EmployeeKey",
+          r."OrderDateKey" // 10000 AS y,
+          (r."OrderDateKey" // 100) % 100 AS m,
+          SUM(r."SalesAmount") AS s
+        FROM aw_dw2019_ru.dbo."FactResellerSales" r
+        JOIN aw_dw2019_ru.dbo."DimEmployee" e ON r."EmployeeKey" = e."EmployeeKey"
+        GROUP BY 1, 2, 3
+      ),
+      quota_q AS (
+        SELECT
+          q."EmployeeKey", q."CalendarYear" AS y, q."CalendarQuarter" AS qtr,
+          SUM(q."SalesAmountQuota") AS qq
+        FROM aw_dw2019_ru.dbo."FactSalesQuota" q
+        GROUP BY 1, 2, 3
+      ),
+      quota_y AS (
+        SELECT "EmployeeKey", y, SUM(qq) AS qy FROM quota_q GROUP BY 1, 2
+      ),
+      grid AS (
+        -- сетка сотрудник × 12 месяцев каждого года с квотой: знаменатели
+        -- (квоты) присутствуют на каждом месяце, окно кумулятива непрерывно
+        SELECT qy."EmployeeKey", qy.y, mm.m
+        FROM quota_y qy
+        CROSS JOIN (SELECT unnest([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) AS m) mm
+      )
+      SELECT
+        'p:' || g."EmployeeKey" || ':' || g.y || ':' || g.m AS "RowKey",
+        g."EmployeeKey" AS "EmployeeKey",
+        e."SalesTerritoryKey",
+        t."SalesTerritoryCountry",
+        g.y AS "CalendarYear",
+        ((g.m + 2) // 3) AS "CalendarQuarter",
+        g.m AS "MonthNumber",
+        (['Январь','Февраль','Март','Апрель','Май','Июнь',
+          'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'])[g.m] AS "MonthName",
+        CAST(COALESCE(s.s, 0) AS DOUBLE) AS "SalesAmount",
+        CAST(quq.qq AS DOUBLE) AS "QuarterQuota",
+        CAST(quy.qy AS DOUBLE) AS "YearQuota",
+        CAST(SUM(COALESCE(s.s, 0)) OVER (
+               PARTITION BY g."EmployeeKey", g.y ORDER BY g.m
+             ) AS DOUBLE) AS "CumYearSales"
+      FROM grid g
+      JOIN aw_dw2019_ru.dbo."DimEmployee" e ON g."EmployeeKey" = e."EmployeeKey"
+      JOIN aw_dw2019_ru.dbo."DimSalesTerritory" t ON e."SalesTerritoryKey" = t."SalesTerritoryKey"
+      LEFT JOIN sales s ON s."EmployeeKey" = g."EmployeeKey" AND s.y = g.y AND s.m = g.m
+      LEFT JOIN quota_q quq
+        ON quq."EmployeeKey" = g."EmployeeKey" AND quq.y = g.y AND quq.qtr = ((g.m + 2) // 3)
+      LEFT JOIN quota_y quy
+        ON quy."EmployeeKey" = g."EmployeeKey" AND quy.y = g.y
+
+    joins:
+      - name: aw_dim_employee
+        sql: '{CUBE}."EmployeeKey" = {aw_dim_employee}."EmployeeKey"'
+        relationship: many_to_one
+      - name: aw_dim_sales_territory
+        sql: '{CUBE}."SalesTerritoryKey" = {aw_dim_sales_territory}."SalesTerritoryKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: sales_amount
+        title: Факт (опт)
+        sql: '{CUBE}."SalesAmount"'
+        type: sum
+        format: currency
+        description: Факт опта за месяц, USD.
+      - name: fact_share_of_quarter_quota
+        title: Доля факта от квоты квартала
+        sql: '{CUBE.sales_amount} / NULLIF({CUBE.quarter_quota}, 0)'
+        type: number
+        format: percent
+        description: |
+          факт_м / квота_Q: какую долю квартального плана закрыл месяц.
+          Срез месяца (Σ месяцев квартала == выполнение квартала);
+          выше месяца не определена.
+      - name: cum_share_of_year_quota
+        title: Кумулятив к годовой квоте
+        sql: '{CUBE.cum_year_sales} / NULLIF({CUBE.year_quota}, 0)'
+        type: number
+        format: percent
+        description: |
+          (Σфакт янв..м) / квота_года: накопительный прогресс года.
+          cum(декабрь) == выполнение года. Срез месяца.
+      - name: quarter_quota
+        title: Квота квартала (база доли)
+        sql: '{CUBE}."QuarterQuota"'
+        type: sum
+        format: currency
+        description: Квота квартала, вшитая в строку месяца; срез месяца.
+      - name: year_quota
+        title: Квота года (база кумулятива)
+        sql: '{CUBE}."YearQuota"'
+        type: sum
+        format: currency
+        description: Годовая квота (Σ квартальных); срез месяца.
+      - name: cum_year_sales
+        title: Факт накопленный с начала года
+        sql: '{CUBE}."CumYearSales"'
+        type: sum
+        format: currency
+        description: Оконная сумма факта с января года; срез месяца.
+
+    dimensions:
+      - name: row_key
+        title: Ключ строки
+        sql: '{CUBE}."RowKey"'
+        type: string
+        primary_key: true
+        description: "Формат: p:employee:год:месяц"
+      - name: employee_key
+        title: Ключ сотрудника
+        sql: '{CUBE}."EmployeeKey"'
+        type: number
+      - name: sales_territory_key
+        title: Ключ территории (сотрудника)
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+      - name: sales_territory_country
+        title: Страна (территория сотрудника)
+        sql: '{CUBE}."SalesTerritoryCountry"'
+        type: string
+        description: Как в aw_quota_vs_actual — conformed по сотруднику.
+      - name: calendar_year
+        title: Год
+        sql: '{CUBE}."CalendarYear"'
+        type: number
+      - name: calendar_quarter
+        title: Квартал
+        sql: '{CUBE}."CalendarQuarter"'
+        type: number
+      - name: month_number
+        title: Месяц (номер)
+        sql: '{CUBE}."MonthNumber"'
+        type: number
+      - name: month_name
+        title: Месяц
+        sql: '{CUBE}."MonthName"'
+        type: string

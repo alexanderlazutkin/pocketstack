@@ -674,8 +674,16 @@ class TestPlanVsFactBlend:
                     "measures": [f"{self.V}.sales_amount_quota"],
                     "dimensions": [f"{self.V}.calendar_year"],
                     "filters": [
-                        {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]},
-                        {"member": f"{self.V}.emp_territory_country", "operator": "equals", "values": [country]},
+                        {
+                            "member": f"{self.V}.calendar_year",
+                            "operator": "equals",
+                            "values": ["2012"],
+                        },
+                        {
+                            "member": f"{self.V}.emp_territory_country",
+                            "operator": "equals",
+                            "values": [country],
+                        },
                     ],
                 }
             ),
@@ -687,8 +695,16 @@ class TestPlanVsFactBlend:
                     "measures": [f"{self.V}.sales_amount"],
                     "dimensions": [f"{self.V}.calendar_year"],
                     "filters": [
-                        {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]},
-                        {"member": f"{self.V}.deal_territory_country", "operator": "equals", "values": [country]},
+                        {
+                            "member": f"{self.V}.calendar_year",
+                            "operator": "equals",
+                            "values": ["2012"],
+                        },
+                        {
+                            "member": f"{self.V}.deal_territory_country",
+                            "operator": "equals",
+                            "values": [country],
+                        },
                     ],
                 }
             ),
@@ -727,9 +743,21 @@ class TestPlanVsFactBlend:
                     "measures": [f"{self.V}.sales_amount"],
                     "dimensions": [f"{self.V}.calendar_year"],
                     "filters": [
-                        {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]},
-                        {"member": f"{self.V}.emp_territory_country", "operator": "equals", "values": [country]},
-                        {"member": f"{self.V}.deal_territory_country", "operator": "equals", "values": [country]},
+                        {
+                            "member": f"{self.V}.calendar_year",
+                            "operator": "equals",
+                            "values": ["2012"],
+                        },
+                        {
+                            "member": f"{self.V}.emp_territory_country",
+                            "operator": "equals",
+                            "values": [country],
+                        },
+                        {
+                            "member": f"{self.V}.deal_territory_country",
+                            "operator": "equals",
+                            "values": [country],
+                        },
                     ],
                 }
             ),
@@ -744,10 +772,10 @@ class TestPlanVsFactBlend:
             ).fetchone()[0]
         )
         assert got_a != pytest.approx(ref_a, abs=TOL), (
-            "если факт сошёлся — Cube починил изоляцию фильтров, "
-            "обнови §8.2 и этот тест"
+            "если факт сошёлся — Cube починил изоляцию фильтров, обнови §8.2 и этот тест"
         )
         assert got_a < ref_a  # наблюдаемое: потеря строк, не задвоение
+
     def test_month_slice_grain_distortion(self, aw, rest):
         """Ф11.1, демонстрация ловушки grain: ось «месяц» в blending приписывает
         ВСЮ квартальную квоту к конкретному месяцу по DateKey строки квоты
@@ -809,3 +837,168 @@ class TestPlanVsFactBlend:
         assert monthly_mixed
         for r in monthly_mixed:
             assert r.get("aw_quota_vs_actual.sales_amount_quota") is None
+
+
+class TestQuotaPace:
+    """Ф11.2 (по запросу пользователя 2026-11-05): доли факта от плана.
+
+    Куб aw_quota_pace (grain сотрудник×месяц, окна в SQL):
+    - fact_share_of_quarter_quota: факт_м / квота квартала — срез месяца
+      (Σ месяцев квартала == выполнение квартала);
+    - cum_share_of_year_quota: (Σфакт янв..м) / квота года — накопительный
+      прогресс года; cum(декабрь) == completion года (инвариант);
+    «100% на квартале / NULL на годе» — поуровневые определения (SSAS Scope):
+    на Cube 1.8 мерой не выражаются, собираются SQL-выражениями источников
+    (SUM(qq)/SUM(qq), NULL) — см. §8.2.
+    """
+
+    P = "aw_quota_pace"
+
+    def test_fact_share_of_quarter_by_month(self, aw, rest):
+        rows = rest(
+            {
+                "measures": [f"{self.P}.fact_share_of_quarter_quota"],
+                "dimensions": [f"{self.P}.calendar_year", f"{self.P}.month_number"],
+                "filters": [
+                    {"member": f"{self.P}.calendar_year", "operator": "equals", "values": ["2013"]}
+                ],
+            }
+        )
+        got = {
+            int(r[f"{self.P}.month_number"]): r.get(f"{self.P}.fact_share_of_quarter_quota")
+            for r in rows
+        }
+        ref = {
+            m: v
+            for m, v in aw.execute(
+                """
+                WITH qe AS (
+                  SELECT DISTINCT "EmployeeKey" FROM aw.dbo."FactSalesQuota"
+                    WHERE "CalendarYear" = 2013
+                ), qq AS (
+                  SELECT "CalendarQuarter" qtr, SUM("SalesAmountQuota") v
+                  FROM aw.dbo."FactSalesQuota" WHERE "CalendarYear" = 2013 GROUP BY 1
+                ), ss AS (
+                  SELECT (r."OrderDateKey"//100)%100 m,
+                         ((r."OrderDateKey"//100)%100+2)//3 qtr,
+                         SUM(r."SalesAmount") v
+                  FROM aw.dbo."FactResellerSales" r JOIN qe USING ("EmployeeKey")
+                  WHERE r."OrderDateKey"//10000 = 2013 GROUP BY 1, 2
+                )
+                SELECT ss.m, ss.v / qq.v FROM ss JOIN qq USING (qtr) ORDER BY 1
+                """
+            ).fetchall()
+        }
+        assert set(ref) <= set(got)  # сетка куба содержит все 12 месяцев
+        for m, v in ref.items():
+            g = got[m]
+            assert g is not None, f"месяц {m}"
+            assert float(g) == pytest.approx(float(v), rel=1e-6), f"месяц {m}"
+        for m in set(got) - set(ref):
+            # месяц без продаж: 0 при наличии квоты квартала, NULL без неё
+            assert got[m] is None or float(got[m]) == pytest.approx(0.0, abs=1e-12), m
+
+    def test_cum_share_of_year_by_month(self, aw, rest):
+        rows = rest(
+            {
+                "measures": [f"{self.P}.cum_share_of_year_quota"],
+                "dimensions": [f"{self.P}.calendar_year", f"{self.P}.month_number"],
+                "filters": [
+                    {"member": f"{self.P}.calendar_year", "operator": "equals", "values": ["2013"]}
+                ],
+            }
+        )
+        got = {
+            int(r[f"{self.P}.month_number"]): r.get(f"{self.P}.cum_share_of_year_quota")
+            for r in rows
+        }
+        ref = {
+            m: v
+            for m, v in aw.execute(
+                """
+                WITH qe AS (
+                  SELECT DISTINCT "EmployeeKey" FROM aw.dbo."FactSalesQuota"
+                    WHERE "CalendarYear" = 2013
+                ), m AS (
+                  SELECT (r."OrderDateKey"//100)%100 mm, SUM(r."SalesAmount") v
+                  FROM aw.dbo."FactResellerSales" r JOIN qe USING ("EmployeeKey")
+                  WHERE r."OrderDateKey"//10000 = 2013 GROUP BY 1
+                ), c AS (
+                  SELECT mm, (SELECT SUM(v) FROM m t WHERE t.mm <= c.mm) cum FROM m c
+                )
+                SELECT c.mm, c.cum / (SELECT SUM("SalesAmountQuota")
+                                      FROM aw.dbo."FactSalesQuota" WHERE "CalendarYear" = 2013)
+                FROM c ORDER BY 1
+                """
+            ).fetchall()
+        }
+        assert set(ref) <= set(got)  # сетка куба содержит все 12 месяцев
+        for m, v in ref.items():
+            assert float(got[m]) == pytest.approx(float(v), rel=1e-6), f"месяц {m}"
+        # месяцы после последней продажи: кумулятив не растёт
+        last = max(ref)
+        for m in set(got) - set(ref):
+            assert float(got[m]) == pytest.approx(float(ref[last]), rel=1e-6), m
+
+    def test_cum_december_equals_year_completion(self, rest):
+        """Инвариант: cum(последний месяц года) == completion года mixed-куба."""
+        pace = rest(
+            {
+                "measures": [f"{self.P}.cum_share_of_year_quota"],
+                "dimensions": [f"{self.P}.calendar_year"],
+                "filters": [
+                    {"member": f"{self.P}.calendar_year", "operator": "equals", "values": ["2013"]}
+                ],
+            }
+        )
+        pace_cum = _m(pace, f"{self.P}.cum_share_of_year_quota")
+        # срез года в pace: знаменатель ×12 (кратность строк) — берём месяц
+        dec = rest(
+            {
+                "measures": [f"{self.P}.cum_share_of_year_quota"],
+                "dimensions": [f"{self.P}.calendar_year", f"{self.P}.month_number"],
+                "filters": [
+                    {"member": f"{self.P}.calendar_year", "operator": "equals", "values": ["2013"]},
+                    {
+                        "member": f"{self.P}.month_number",
+                        "operator": "equals",
+                        "values": ["12"],
+                    },
+                ],
+            }
+        )
+        if not dec:  # декабрь без продаж — берём последний доступный месяц
+            dec = rest(
+                {
+                    "measures": [f"{self.P}.cum_share_of_year_quota"],
+                    "dimensions": [f"{self.P}.calendar_year", f"{self.P}.month_number"],
+                    "filters": [
+                        {
+                            "member": f"{self.P}.calendar_year",
+                            "operator": "equals",
+                            "values": ["2013"],
+                        }
+                    ],
+                    "order": {f"{self.P}.month_number": "desc"},
+                    "limit": 1,
+                }
+            )
+        cum = _m(dec, f"{self.P}.cum_share_of_year_quota")
+        mixed = _m(
+            rest(
+                {
+                    "measures": ["aw_quota_vs_actual.completion_pct"],
+                    "dimensions": ["aw_quota_vs_actual.calendar_year"],
+                    "filters": [
+                        {
+                            "member": "aw_quota_vs_actual.calendar_year",
+                            "operator": "equals",
+                            "values": ["2013"],
+                        }
+                    ],
+                }
+            ),
+            "aw_quota_vs_actual.completion_pct",
+        )
+        assert cum == pytest.approx(float(mixed), rel=1e-6)
+        assert pace_cum is not None  # мера на годе определена (с кратностью), не используем
