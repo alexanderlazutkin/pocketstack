@@ -571,3 +571,93 @@ class TestQuotaVsActual:
             assert got[k][0] == pytest.approx(v, abs=TOL), f"квота {k}"
         for k, v in ref_a.items():
             assert got[k][1] == pytest.approx(v, abs=TOL), f"факт {k}"
+
+
+class TestPlanVsFactBlend:
+    """Ф11.1: тот же план/факт через data blending (multi-fact view).
+
+    View plan_vs_fact_blend сводит меры aw_sales_targets (квоты) и
+    aw_reseller_sales (опт) по conformed-осям aw_dim_date (год/квартал);
+    completion_pct — мера view (выражение над мерами двух кубов). Сравнение
+    с теми же REF, что и mixed-grain куб (TestQuotaVsActual): сведение по
+    общему grain должно давать идентичные числа. Месячная ось НЕ входит:
+    квота джойнится к DateKey первого дня квартала — на месяце она
+    «провалилась» бы в один месяц (искажение grain, см. §8.2).
+    """
+
+    V = "plan_vs_fact_blend"
+
+    def test_quota_total(self, aw, rest):
+        got = _m(
+            rest({"measures": [f"{self.V}.sales_amount_quota"]}), f"{self.V}.sales_amount_quota"
+        )
+        ref = float(
+            aw.execute('SELECT SUM("SalesAmountQuota") FROM aw.dbo."FactSalesQuota"').fetchone()[0]
+        )
+        assert got == pytest.approx(ref, abs=TOL)
+
+    def test_actual_total(self, aw, rest):
+        got = _m(rest({"measures": [f"{self.V}.sales_amount"]}), f"{self.V}.sales_amount")
+        assert got == pytest.approx(ETALON_RESELLER, abs=TOL)
+
+    def test_by_year_matches_mixed_cube(self, aw, rest):
+        """Blending == mixed-grain куб == REF: по годам обе меры."""
+        rows = rest(
+            {
+                "measures": [f"{self.V}.sales_amount_quota", f"{self.V}.sales_amount"],
+                "dimensions": [f"{self.V}.calendar_year"],
+            }
+        )
+        # dim-корень звезды отдаёт и «пустые» годы календаря (обе меры NULL)
+        got = {
+            int(r[f"{self.V}.calendar_year"]): (
+                float(r[f"{self.V}.sales_amount_quota"]),
+                float(r[f"{self.V}.sales_amount"]),
+            )
+            for r in rows
+            if r.get(f"{self.V}.sales_amount_quota") is not None
+            or r.get(f"{self.V}.sales_amount") is not None
+        }
+        ref_q = {
+            int(y): float(v)
+            for y, v in aw.execute(
+                'SELECT "CalendarYear", SUM("SalesAmountQuota") FROM aw.dbo."FactSalesQuota" GROUP BY 1'
+            ).fetchall()
+        }
+        ref_a = {
+            int(y): float(v)
+            for y, v in aw.execute(
+                'SELECT "OrderDateKey"//10000 AS y, SUM("SalesAmount") '
+                'FROM aw.dbo."FactResellerSales" GROUP BY 1'
+            ).fetchall()
+        }
+        assert set(got) == set(ref_q) | set(ref_a)
+        for y in ref_q:
+            assert got[y][0] == pytest.approx(ref_q[y], abs=TOL), f"квоты {y}"
+        for y in ref_a:
+            assert got[y][1] == pytest.approx(ref_a[y], abs=TOL), f"факт {y}"
+
+    def test_completion_ratio_of_sums_by_quarter(self, aw, rest):
+        """Г2: completion по кварталам = Σфакт/Σквота (деление сумм)."""
+        rows = rest(
+            {
+                "measures": [
+                    f"{self.V}.sales_amount_quota",
+                    f"{self.V}.sales_amount",
+                    f"{self.V}.completion_pct",
+                ],
+                "dimensions": [f"{self.V}.calendar_year", f"{self.V}.calendar_quarter"],
+                "filters": [
+                    {"member": f"{self.V}.calendar_year", "operator": "equals", "values": ["2012"]}
+                ],
+            }
+        )
+        assert rows
+        for r in rows:
+            q = r.get(f"{self.V}.sales_amount_quota")
+            a = r.get(f"{self.V}.sales_amount")
+            c = r.get(f"{self.V}.completion_pct")
+            if q is None or float(q) == 0:
+                assert c is None
+            else:
+                assert float(c) == pytest.approx(float(a) / float(q), rel=1e-6), r

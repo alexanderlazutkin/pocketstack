@@ -1,0 +1,45 @@
+# Ф11.1: план/факт через DATA BLENDING (multi-fact view) — альтернатива
+# предагрегированному mixed-grain кубу aw_quota_vs_actual (Ф11).
+# Оба факта сводятся по conformed-осям aw_dim_date (год/квартал — общая
+# DimDate; квота джойнится к DateKey первого дня квартала). Мера view
+# completion_pct — выражение над мерами двух кубов: Cube строит по каждому
+# факту свой агрегат-подзапрос и сводит их по осям.
+# ОГРАНИЧЕНИЕ grain (почему нет месяца/дня): квота живёт на дате-первого-дня
+# квартала — ось «месяц» ложно отнесла бы всю квартальную квоту к одному
+# месяцу. Для месячного среза используйте aw_quota_vs_actual (mixed grain,
+# план-строки с month NULL). Territory-оси у плана нет (квоты связаны с
+# территорией только через сотрудника) — страна не входит в этот view.
+views:
+  - name: plan_vs_fact_blend
+    title: План/факт (blending по conformed-датам)
+    description: |
+      План (квоты, FactSalesQuota) и факт (опт, FactResellerSales) сведены
+      data blending'ом: каждый факт агрегируется в своём подзапросе по
+      conformed-осям aw_dim_date (год, квартал), затем агрегаты join'ятся —
+      фанаута нет. Срез — год/квартал (общий grain обеих сторон). Месячная
+      детализация и территория — в кубе aw_quota_vs_actual (Ф11).
+      Демо различий подходов: docs/ssasmd-cube-migration.md §8.2.
+    cubes:
+      # 1.8.13: many_to_many relationship выпилен из схемы-компилятора;
+      # несвязанные корни тоже не поддерживаются. Сведение — звезда с корнем
+      # aw_dim_date (рёбра dim→факт объявлены в aw_dim_date).
+      - join_path: aw_dim_date
+        includes:
+          - calendar_year
+          - calendar_quarter
+      - join_path: aw_dim_date.aw_sales_targets
+        includes:
+          - sales_amount_quota
+      - join_path: aw_dim_date.aw_reseller_sales
+        includes:
+          - sales_amount
+
+    measures:
+      - name: completion_pct
+        title: Выполнение плана, %
+        sql: "{aw_reseller_sales.sales_amount} / NULLIF({aw_sales_targets.sales_amount_quota}, 0)"
+        type: number
+        format: percent
+        description: |
+          Σфакт / Σквота по срезу: выражение над агрегатами двух кубов
+          (каждый факт суммируется в своём подзапросе до сведения).

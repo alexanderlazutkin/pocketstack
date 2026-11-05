@@ -15,7 +15,17 @@ cubes:
       Weeks. Финансовый год AW начинается 1 июля: FY2022 = июль 2021 — июнь 2022.
     sql: SELECT * FROM aw_dw2019_ru.dbo."DimDate"
 
-    joins: []
+    joins:
+      # Ф11.1: рёбра dim→факты для сведения план/факт по общей оси дат
+      # (view plan_vs_fact_blend; dim — корень звезды, обе стороны не теряют
+      # строк). Основные запросы даты заказа факта идут через ролевую
+      # aw_date_order; эти рёбра — только ось blending'а.
+      - name: aw_reseller_sales
+        sql: '{CUBE}."DateKey" = {aw_reseller_sales}."OrderDateKey"'
+        relationship: one_to_many
+      - name: aw_sales_targets
+        sql: '{CUBE}."DateKey" = {aw_sales_targets}."DateKey"'
+        relationship: one_to_many
 
     measures: []
 
