@@ -1,0 +1,180 @@
+# План/факт продаж: квоты (FactSalesQuota) против опта (FactResellerSales).
+# Ф11 (docs/ssasmd-cube-migration.md §8.1), plan.md №15: второй факт другой
+# гранулярности на conformed dims. Смешанный grain в одном кубе:
+# план-строки employee×quarter (месяц NULL, квота) UNION ALL факт-строки
+# employee×month (квота NULL, факт) — обе стороны ПРЕДАГРЕГИРОВАНЫ (Ф3,
+# анти-фанаут). Свёртка: на срезе ≥ квартала обе меры аддитивны,
+# completion_pct = Σфакт/Σквота (деление сумм, не avg отношений);
+# срез месяцем — план NULL (гипотезы Г1–Г3).
+cubes:
+  - name: aw_quota_vs_actual
+    title: План/факт продаж (квоты vs опт)
+    description: |
+      План/факт на данных AW: план — квартальные квоты продавцов
+      (FactSalesQuota, SSAS [Sales Amount Quota]), факт — оптовые продажи
+      (FactResellerSales, SSAS [Reseller Sales Amount]). Строки двух
+      гранулярностей: квартальные план-строки (месяц NULL) и месячные
+      факт-строки (квота NULL). Территория — conformed через сотрудника
+      (DimEmployee.SalesTerritoryKey, не территорию сделки). Сверка —
+      golden-тесты harness (TestQuotaVsActual), дашборд Evidence
+      /quota-vs-actual.
+    sql: |
+      WITH quota AS (
+        SELECT
+          q."EmployeeKey",
+          e."SalesTerritoryKey",
+          t."SalesTerritoryCountry",
+          q."CalendarYear",
+          q."CalendarQuarter",
+          CAST(SUM(q."SalesAmountQuota") AS DOUBLE) AS sales_amount_quota
+        FROM aw_dw2019_ru.dbo."FactSalesQuota" q
+        JOIN aw_dw2019_ru.dbo."DimEmployee" e ON q."EmployeeKey" = e."EmployeeKey"
+        JOIN aw_dw2019_ru.dbo."DimSalesTerritory" t ON t."SalesTerritoryKey" = e."SalesTerritoryKey"
+        GROUP BY 1, 2, 3, 4, 5
+      ),
+      actual AS (
+        SELECT
+          r."EmployeeKey",
+          e."SalesTerritoryKey",
+          t."SalesTerritoryCountry",
+          r."OrderDateKey" // 10000 AS calendar_year,
+          (((r."OrderDateKey" // 100) % 100) + 2) // 3 AS calendar_quarter,
+          (r."OrderDateKey" // 100) % 100 AS month_number,
+          CAST(SUM(r."SalesAmount") AS DOUBLE) AS sales_amount,
+          CAST(SUM(r."SalesAmount" - r."TotalProductCost") AS DOUBLE) AS gross_profit
+        FROM aw_dw2019_ru.dbo."FactResellerSales" r
+        JOIN aw_dw2019_ru.dbo."DimEmployee" e ON r."EmployeeKey" = e."EmployeeKey"
+        JOIN aw_dw2019_ru.dbo."DimSalesTerritory" t ON t."SalesTerritoryKey" = e."SalesTerritoryKey"
+        GROUP BY 1, 2, 3, 4, 5, 6
+      )
+      SELECT
+        'q:' || "EmployeeKey" || ':' || "CalendarYear" || ':' || "CalendarQuarter" AS "RowKey",
+        "EmployeeKey", "SalesTerritoryKey", "SalesTerritoryCountry", "CalendarYear", "CalendarQuarter",
+        NULL::INTEGER AS "MonthNumber",
+        NULL::VARCHAR AS "MonthName",
+        sales_amount_quota AS "SalesAmountQuota",
+        NULL::DOUBLE AS "SalesAmount",
+        NULL::DOUBLE AS "GrossProfit"
+      FROM quota
+      UNION ALL
+      SELECT
+        'a:' || "EmployeeKey" || ':' || calendar_year || ':' || calendar_quarter || ':' || month_number AS "RowKey",
+        "EmployeeKey",
+        "SalesTerritoryKey",
+        "SalesTerritoryCountry",
+        calendar_year AS "CalendarYear",
+        calendar_quarter AS "CalendarQuarter",
+        month_number AS "MonthNumber",
+        (['Январь','Февраль','Март','Апрель','Май','Июнь',
+          'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'])[month_number] AS "MonthName",
+        NULL::DOUBLE AS "SalesAmountQuota",
+        sales_amount AS "SalesAmount",
+        gross_profit AS "GrossProfit"
+      FROM actual
+
+    joins:
+      - name: aw_dim_employee
+        sql: '{CUBE}."EmployeeKey" = {aw_dim_employee}."EmployeeKey"'
+        relationship: many_to_one
+      - name: aw_dim_sales_territory
+        sql: '{CUBE}."SalesTerritoryKey" = {aw_dim_sales_territory}."SalesTerritoryKey"'
+        relationship: many_to_one
+
+    measures:
+      - name: sales_amount_quota
+        title: Квота продаж (план)
+        sql: '{CUBE}."SalesAmountQuota"'
+        type: sum
+        format: currency
+        description: |
+          Сумма квартальных квот, USD. SSAS: [Sales Amount Quota]
+          (MG Sales Targets). Аддитивна на срезе ≥ квартала; на месяце —
+          NULL (гранулярность плана — квартал, размазывать нельзя).
+      - name: sales_amount
+        title: Продажи (факт, опт)
+        sql: '{CUBE}."SalesAmount"'
+        type: sum
+        format: currency
+        description: |
+          Факт оптовых продаж, USD. SSAS: [Reseller Sales Amount]
+          (MG Reseller Sales). Аддитивна на любом срезе (месяц и выше).
+      - name: gross_profit
+        title: Валовая прибыль (факт, опт)
+        sql: '{CUBE}."GrossProfit"'
+        type: sum
+        format: currency
+        description: SalesAmount − TotalProductCost по факту опта, USD.
+      - name: variance
+        title: Отклонение факт−план
+        sql: '{CUBE.sales_amount} - {CUBE.sales_amount_quota}'
+        type: number
+        format: currency
+        description: |
+          Факт − план, USD. Осмыслен на срезе ≥ квартала (где есть план).
+      - name: completion_pct
+        title: Выполнение плана, %
+        sql: '{CUBE.sales_amount} / NULLIF({CUBE.sales_amount_quota}, 0)'
+        type: number
+        format: percent
+        description: |
+          Σфакт / Σквота — деление сумм на срезе, НЕ среднее отношений.
+          NULL на месяце (план квартальный). Доля от 1.
+      - name: variance_pct
+        title: Отклонение от плана, %
+        sql: |
+          ({CUBE.sales_amount} - {CUBE.sales_amount_quota})
+          / NULLIF({CUBE.sales_amount_quota}, 0)
+        type: number
+        format: percent
+        description: (Факт − план) / план, доля от 1. На срезе ≥ квартала.
+
+    dimensions:
+      - name: row_key
+        title: Ключ строки (grain-признак)
+        sql: '{CUBE}."RowKey"'
+        type: string
+        primary_key: true
+        description: |
+          Суррогатный ключ строки; префикс — гранулярность: q=план
+          (employee×quarter), a=факт (employee×month).
+      - name: employee_key
+        title: Ключ сотрудника
+        sql: '{CUBE}."EmployeeKey"'
+        type: number
+        description: FK → aw_dim_employee (продавцы; у обеих сторон).
+      - name: sales_territory_key
+        title: Ключ территории сотрудника
+        sql: '{CUBE}."SalesTerritoryKey"'
+        type: number
+        description: |
+          Территория СОТРУДНИКА из DimEmployee (conformed для плана и
+          факта; не территория сделки FactResellerSales.SalesTerritoryKey).
+      - name: sales_territory_country
+        title: Страна (территория сотрудника)
+        sql: '{CUBE}."SalesTerritoryCountry"'
+        type: string
+        description: |
+          Предвычислено в SQL куба (DimEmployee → DimSalesTerritory),
+          чтобы страна работала в SQL API без join. Дублирует
+          aw_dim_sales_territory.sales_territory_country (REST-путь).
+      - name: calendar_year
+        title: Год
+        sql: '{CUBE}."CalendarYear"'
+        type: number
+        description: "Календарный год (план: CalendarYear; факт: год даты заказа)."
+      - name: calendar_quarter
+        title: Квартал
+        sql: '{CUBE}."CalendarQuarter"'
+        type: number
+        description: Квартал 1–4 — общая гранулярность плана и факта.
+      - name: month_number
+        title: Месяц (номер)
+        sql: '{CUBE}."MonthNumber"'
+        type: number
+        description: |
+          1–12 для факт-строк; NULL у план-строк (квартальный grain плана).
+      - name: month_name
+        title: Месяц
+        sql: '{CUBE}."MonthName"'
+        type: string
+        description: Название месяца для факт-строк; NULL у план-строк.

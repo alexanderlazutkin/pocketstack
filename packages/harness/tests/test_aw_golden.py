@@ -322,3 +322,252 @@ class TestKpi:
             r["aw_kpi.kpi"] == "product_gross_profit_margin" and r["aw_kpi.member"] == "Bikes"
             for r in rows
         )
+
+
+class TestQuotaVsActual:
+    """Ф11 (§8.1, plan.md №15): план/факт разных гранулярностей в одном кубе.
+
+    aw_quota_vs_actual — смешанный grain: план-строки employee×quarter
+    (SalesAmountQuota, месяц NULL) UNION ALL факт-строки employee×month
+    (SalesAmount, GrossProfit, квота NULL). Территория — conformed через
+    сотрудника (DimEmployee.SalesTerritoryKey). Гипотезы: Г1 паритет REF без
+    фанаута; Г2 completion = деление сумм (не avg отношений); Г3 срез
+    месяцем — план NULL, факт есть.
+    """
+
+    Q = "aw_quota_vs_actual"
+
+    def test_quota_total(self, aw, rest):
+        """Г1: Σ квот == FactSalesQuota (без фанаута от джойна с фактом)."""
+        got = _m(
+            rest({"measures": [f"{self.Q}.sales_amount_quota"]}), f"{self.Q}.sales_amount_quota"
+        )
+        ref = float(
+            aw.execute('SELECT SUM("SalesAmountQuota") FROM aw.dbo."FactSalesQuota"').fetchone()[0]
+        )
+        assert got == pytest.approx(ref, abs=TOL)
+
+    def test_actual_total(self, aw, rest):
+        """Г1: Σ факта == FactResellerSales == эталон Ф9."""
+        got = _m(rest({"measures": [f"{self.Q}.sales_amount"]}), f"{self.Q}.sales_amount")
+        assert got == pytest.approx(ETALON_RESELLER, abs=TOL)
+
+    def test_by_year(self, aw, rest):
+        """Г1: по годам обе меры == REF (год факта — от даты заказа)."""
+        rows = rest(
+            {
+                "measures": [f"{self.Q}.sales_amount_quota", f"{self.Q}.sales_amount"],
+                "dimensions": [f"{self.Q}.calendar_year"],
+            }
+        )
+        got_q = {
+            int(r[f"{self.Q}.calendar_year"]): float(r[f"{self.Q}.sales_amount_quota"])
+            for r in rows
+        }
+        got_a = {
+            int(r[f"{self.Q}.calendar_year"]): float(r[f"{self.Q}.sales_amount"]) for r in rows
+        }
+        ref_q = {
+            int(y): float(v)
+            for y, v in aw.execute(
+                'SELECT "CalendarYear", SUM("SalesAmountQuota") FROM aw.dbo."FactSalesQuota" GROUP BY 1'
+            ).fetchall()
+        }
+        ref_a = {
+            int(y): float(v)
+            for y, v in aw.execute(
+                'SELECT "OrderDateKey"//10000 AS y, SUM("SalesAmount") '
+                'FROM aw.dbo."FactResellerSales" GROUP BY 1'
+            ).fetchall()
+        }
+        assert set(got_q) == set(ref_q)
+        assert set(got_a) == set(ref_a)
+        for y in ref_q:
+            assert got_q[y] == pytest.approx(ref_q[y], abs=TOL), f"квоты {y}"
+        for y in ref_a:
+            assert got_a[y] == pytest.approx(ref_a[y], abs=TOL), f"факт {y}"
+
+    def test_completion_is_ratio_of_sums(self, aw, rest):
+        """Г2: completion за год = Σфакт/Σквота ≠ среднее квартальных completion."""
+        rows = rest(
+            {
+                "measures": [
+                    f"{self.Q}.sales_amount_quota",
+                    f"{self.Q}.sales_amount",
+                    f"{self.Q}.completion_pct",
+                ],
+                "dimensions": [f"{self.Q}.calendar_year"],
+            }
+        )
+        for r in rows:
+            q = float(r[f"{self.Q}.sales_amount_quota"])
+            a = float(r[f"{self.Q}.sales_amount"])
+            c = r.get(f"{self.Q}.completion_pct")
+            if c is None:
+                assert a == pytest.approx(0, abs=TOL) or q == pytest.approx(0, abs=TOL)
+            else:
+                assert float(c) == pytest.approx(a / q, rel=1e-6)
+        # деление сумм ≠ avg отношений: считаем оба варианта на REF-данных года
+        y, q_sum, a_sum, avg_of_ratios = aw.execute(
+            """
+            WITH qq AS (
+              SELECT "CalendarYear" y, "CalendarQuarter" qtr, SUM("SalesAmountQuota") v
+              FROM aw.dbo."FactSalesQuota" GROUP BY 1, 2
+            ), aa AS (
+              SELECT "OrderDateKey"//10000 y, ((("OrderDateKey"//100)%100+2)//3) qtr,
+                     SUM("SalesAmount") v
+              FROM aw.dbo."FactResellerSales" GROUP BY 1, 2
+            )
+            SELECT qq.y, SUM(qq.v), SUM(COALESCE(aa.v, 0)),
+                   AVG(CASE WHEN qq.v > 0 AND aa.v IS NOT NULL THEN aa.v / qq.v END)
+            FROM qq LEFT JOIN aa USING (y, qtr)
+            GROUP BY 1 ORDER BY SUM(qq.v) DESC LIMIT 1
+            """
+        ).fetchone()
+        ratio_of_sums = float(a_sum) / float(q_sum)
+        assert avg_of_ratios != pytest.approx(ratio_of_sums, rel=1e-3)
+        got = {int(r[f"{self.Q}.calendar_year"]): r.get(f"{self.Q}.completion_pct") for r in rows}
+        assert float(got[int(y)]) == pytest.approx(ratio_of_sums, rel=1e-6)
+
+    def test_month_slice_quota_null(self, aw, rest):
+        """Г3: срез месяцем — план NULL, факт есть; Σ месяцев квартала == REF."""
+        year = int(
+            aw.execute('SELECT MAX("CalendarYear") FROM aw.dbo."FactSalesQuota"').fetchone()[0]
+        )
+        quarter = int(
+            aw.execute(
+                'SELECT "CalendarQuarter" FROM aw.dbo."FactSalesQuota" WHERE "CalendarYear" = ? LIMIT 1',
+                [year],
+            ).fetchone()[0]
+        )
+        rows = rest(
+            {
+                "measures": [f"{self.Q}.sales_amount_quota", f"{self.Q}.sales_amount"],
+                "dimensions": [
+                    f"{self.Q}.calendar_year",
+                    f"{self.Q}.calendar_quarter",
+                    f"{self.Q}.month_number",
+                ],
+                "filters": [
+                    {
+                        "member": f"{self.Q}.calendar_year",
+                        "operator": "equals",
+                        "values": [str(year)],
+                    },
+                    {
+                        "member": f"{self.Q}.calendar_quarter",
+                        "operator": "equals",
+                        "values": [str(quarter)],
+                    },
+                ],
+            }
+        )
+        monthly = [r for r in rows if r.get(f"{self.Q}.month_number") is not None]
+        assert monthly, "нет месячных строк факта"
+        for r in monthly:
+            assert r.get(f"{self.Q}.sales_amount_quota") is None, "план на месяце должен быть NULL"
+            assert float(r[f"{self.Q}.sales_amount"]) > 0
+        assert {int(r[f"{self.Q}.month_number"]) for r in monthly} <= {
+            (quarter - 1) * 3 + 1,
+            (quarter - 1) * 3 + 2,
+            (quarter - 1) * 3 + 3,
+        }
+        ref = float(
+            aw.execute(
+                'SELECT COALESCE(SUM("SalesAmount"), 0) FROM aw.dbo."FactResellerSales" '
+                'WHERE "OrderDateKey"//10000 = ? AND ((("OrderDateKey"//100)%100+2)//3) = ?',
+                [year, quarter],
+            ).fetchone()[0]
+        )
+        assert sum(float(r[f"{self.Q}.sales_amount"]) for r in monthly) == pytest.approx(
+            ref, abs=TOL
+        )
+
+    def test_territory_country_conformed(self, aw, rest):
+        """Г1/Ф11: страна — conformed через сотрудника (обе стороны DimEmployee)."""
+        rows = rest(
+            {
+                "measures": [f"{self.Q}.sales_amount_quota", f"{self.Q}.sales_amount"],
+                "dimensions": ["aw_dim_sales_territory.sales_territory_country"],
+            }
+        )
+        got_q = {
+            r["aw_dim_sales_territory.sales_territory_country"]: float(
+                r[f"{self.Q}.sales_amount_quota"]
+            )
+            for r in rows
+        }
+        got_a = {
+            r["aw_dim_sales_territory.sales_territory_country"]: float(r[f"{self.Q}.sales_amount"])
+            for r in rows
+        }
+        ref_q = {
+            c: float(v)
+            for c, v in aw.execute(
+                'SELECT t."SalesTerritoryCountry", SUM(q."SalesAmountQuota") '
+                'FROM aw.dbo."FactSalesQuota" q JOIN aw.dbo."DimEmployee" e '
+                '  ON q."EmployeeKey" = e."EmployeeKey" '
+                'JOIN aw.dbo."DimSalesTerritory" t '
+                '  ON t."SalesTerritoryKey" = e."SalesTerritoryKey" GROUP BY 1'
+            ).fetchall()
+        }
+        ref_a = {
+            c: float(v)
+            for c, v in aw.execute(
+                'SELECT t."SalesTerritoryCountry", SUM(r."SalesAmount") '
+                'FROM aw.dbo."FactResellerSales" r JOIN aw.dbo."DimEmployee" e '
+                '  ON r."EmployeeKey" = e."EmployeeKey" '
+                'JOIN aw.dbo."DimSalesTerritory" t '
+                '  ON t."SalesTerritoryKey" = e."SalesTerritoryKey" GROUP BY 1'
+            ).fetchall()
+        }
+        assert set(got_q) == set(ref_q)
+        assert set(got_a) == set(ref_a)
+        for c in ref_q:
+            assert got_q[c] == pytest.approx(ref_q[c], abs=TOL), f"квоты {c}"
+        for c in ref_a:
+            assert got_a[c] == pytest.approx(ref_a[c], abs=TOL), f"факт {c}"
+
+    def test_employee_quarter_grain(self, aw, rest):
+        """Г1: grain employee×quarter — квоты и факт без потерь/дублей."""
+        rows = rest(
+            {
+                "measures": [f"{self.Q}.sales_amount_quota", f"{self.Q}.sales_amount"],
+                "dimensions": [
+                    f"{self.Q}.employee_key",
+                    f"{self.Q}.calendar_year",
+                    f"{self.Q}.calendar_quarter",
+                ],
+            }
+        )
+        got = {}
+        for r in rows:
+            k = (
+                int(r[f"{self.Q}.employee_key"]),
+                int(r[f"{self.Q}.calendar_year"]),
+                int(r[f"{self.Q}.calendar_quarter"]),
+            )
+            q = r.get(f"{self.Q}.sales_amount_quota")
+            a = r.get(f"{self.Q}.sales_amount")
+            e = got.setdefault(k, [0.0, 0.0])
+            e[0] += float(q) if q is not None else 0.0
+            e[1] += float(a) if a is not None else 0.0
+        ref_q = {
+            (int(e), int(y), int(qq)): float(v)
+            for e, y, qq, v in aw.execute(
+                'SELECT "EmployeeKey", "CalendarYear", "CalendarQuarter", SUM("SalesAmountQuota") '
+                'FROM aw.dbo."FactSalesQuota" GROUP BY 1,2,3'
+            ).fetchall()
+        }
+        ref_a = {
+            (int(e), int(y), int(qq)): float(v)
+            for e, y, qq, v in aw.execute(
+                'SELECT "EmployeeKey", "OrderDateKey"//10000, ((("OrderDateKey"//100)%100+2)//3), SUM("SalesAmount") '
+                'FROM aw.dbo."FactResellerSales" GROUP BY 1,2,3'
+            ).fetchall()
+        }
+        assert set(got) == set(ref_q) | set(ref_a)
+        for k, v in ref_q.items():
+            assert got[k][0] == pytest.approx(v, abs=TOL), f"квота {k}"
+        for k, v in ref_a.items():
+            assert got[k][1] == pytest.approx(v, abs=TOL), f"факт {k}"
