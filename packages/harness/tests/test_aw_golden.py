@@ -867,6 +867,7 @@ class TestQuotaPace:
         got = {
             int(r[f"{self.P}.month_number"]): r.get(f"{self.P}.fact_share_of_quarter_quota")
             for r in rows
+            if r.get(f"{self.P}.month_number") is not None  # квартал-строки вне среза
         }
         ref = {
             m: v
@@ -911,6 +912,7 @@ class TestQuotaPace:
         got = {
             int(r[f"{self.P}.month_number"]): r.get(f"{self.P}.cum_share_of_year_quota")
             for r in rows
+            if r.get(f"{self.P}.month_number") is not None  # квартал-строки вне среза
         }
         ref = {
             m: v

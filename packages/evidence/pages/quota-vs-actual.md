@@ -71,27 +71,26 @@ order by quarter
 ## По месяцам — гранулярность ниже плана
 
 ```sql months_j
-select m.*, p.fact_share, p.cum_share
-from cube.aw_quota_vs_actual_months m
-left join cube.aw_pace_months p
-  on p.year = m.year and p.quarter = m.quarter
- and p.month = m.month and p.country = m.country
-where m.year = ${inputs.year.value} and m.country = '${inputs.country.value}'
-order by m.quarter, m.month nulls first
+select * from cube.aw_pace_months
+where year = ${inputs.year.value} and country = '${inputs.country.value}'
+order by quarter, month
 ```
 
 <DataTable data={months_j} rows=all>
   <Column id=quarter title="Квартал" align=right />
   <Column id=month_name title="Месяц" />
-  <Column id=quota title="План (квота)" fmt=num0 align=right />
+  <Column id=quota_display title="План (квота квартала)" fmt=num0 align=right />
   <Column id=actual title="Факт (опт)" fmt=num0 align=right />
   <Column id=fact_share title="Доля факт/квота кв." fmt=pct1 align=right />
   <Column id=cum_share title="Кумулятив года" fmt=pct1 align=right contentType=colorscale scaleColor=business />
 </DataTable>
 
-Строка **без месяца** — план-строка квартала (гранулярность квоты).
-В строках месяцев план всегда пуст: квартальную квоту нельзя размазать по
-месяцам — она появляется только при свёртке до квартала и выше.
+В строках месяцев план — **display-дубль квоты квартала** (как в SSAS-отчётах:
+значение грубого grain показывается на каждом месяце); итог квартала —
+строка в таблице «По кварталам» выше (план = одинарная квота по своей grain,
+факт = Σ месяцев — анти-утроение, SSAS visual totals). Суммируемая мера
+модели на месяце по-прежнему NULL (гипотеза Г3 — блок Details ниже);
+дубль — презентационный слой из куба `aw_quota_pace`.
 
 **Доля факта от плана** (куб `aw_quota_pace`, предагрегированная сетка
 сотрудник×месяц): месяц — `факт_м / квота квартала` (Σ месяцев квартала ==

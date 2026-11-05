@@ -91,13 +91,9 @@ select * from cube.aw_blend_months where year = ${inputs.year.value} order by mo
 ```
 
 ```sql months_mixed
-select m.*, p.fact_share, p.cum_share
-from cube.aw_quota_vs_actual_months m
-left join cube.aw_pace_months p
-  on p.year = m.year and p.quarter = m.quarter
- and p.month = m.month and p.country = m.country
-where m.year = ${inputs.year.value} and m.country = '${inputs.country.value}'
-order by m.quarter, m.month nulls first
+select * from cube.aw_pace_months
+where year = ${inputs.year.value} and country = '${inputs.country.value}'
+order by quarter, month
 ```
 
 <Grid cols=2>
@@ -109,7 +105,7 @@ order by m.quarter, m.month nulls first
   <DataTable data={months_mixed} rows=all>
     <Column id=quarter title="Кв." align=right />
     <Column id=month_name title="Месяц" />
-    <Column id=quota title="План (квота)" fmt=num0 align=right />
+    <Column id=quota_display title="План (квота кв.)" fmt=num0 align=right />
     <Column id=actual title="Факт (опт)" fmt=num0 align=right />
     <Column id=fact_share title="Доля факт/квота кв." fmt=pct1 align=right />
     <Column id=cum_share title="Кумулятив года" fmt=pct1 align=right contentType=colorscale scaleColor=business />
@@ -118,13 +114,15 @@ order by m.quarter, m.month nulls first
 
 *Итог сравнения (2012, золотой-тест `test_month_slice_grain_distortion`):
 Σ квот года в blending не меняется — ломается семантика, не арифметика:
-квота Q1 «появляется» в одном месяце (март), выполнение «января» выглядит
-под 0%, «марта» — под 100% квоты. Mixed-grain куб (справа) показывает план
-только на строке квартала. Правило: ось среза мельче grain стороны в
-blending — не использовать. Охват таблиц различается: blending — все страны
-(фильтры сторон не объединяются в одном запросе), mixed — выбранная страна,
-поэтому абсолютные величины планов различаются — сравнивайте структуру, а не
-абсолюты.*
+вся квота квартала «проваливается» в один месяц (март), выполнение
+«января» выглядит под 0%. Mixed-таблица (справа) — SSAS-стиль отображения:
+план = display-дубль квоты квартала на каждом месяце, строка квартала —
+итог по своей grain (план одинарный, факт = Σ месяцев; суммируемая мера
+модели на месяце NULL — анти-утроение, Г3). Правило: ось среза мельче grain
+стороны в blending — не использовать. Охват таблиц различается: blending —
+все страны (фильтры сторон не объединяются в одном запросе), mixed —
+выбранная страна, поэтому абсолютные величины планов различаются —
+сравнивайте структуру, а не абсолюты.*
 
 **Доли факта от плана** (правая таблица, куб `aw_quota_pace` — в blending
 не выводится, нет знаменателя на месячной оси): месяц = `факт_м / квота
