@@ -1,8 +1,8 @@
 ---
-title: "Верификация: 13 golden-вопросов"
+title: "Верификация: 16 golden-вопросов"
 ---
 
-# Верификация: 13 golden-вопросов
+# Верификация: 16 golden-вопросов
 
 > **Назначение страницы:** кросс-сверка цифр. Каждый блок ниже помечен, **что он
 > проверяет** и где используется в дашбордах. SQL каждого вопроса хранится в
@@ -194,3 +194,44 @@ select * from cube.sales_mov where year = 1997
   <Column id=abs_pop title="Δ PoP, абс." fmt=num2 align=right contentType=colorscale scaleColor=business />
   <Column id=rel_pop title="Δ PoP, %" fmt=num2 align=right contentType=colorscale scaleColor=business />
 </DataTable>
+
+## aw_fact_by_quarter_2012
+
+> **Проверяет:** Ф11 Г4, базлайн — факт опта по кварталам 2012 (план-факт куб).
+> **Используется:** [План/факт](/quota-vs-actual), bench-протокол.
+
+```sql
+SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, SUM(aw_quota_vs_actual.sales_amount) FROM aw_quota_vs_actual WHERE aw_quota_vs_actual.calendar_year = 2012 GROUP BY 1, 2 ORDER BY aw_quota_vs_actual.calendar_quarter
+```
+
+```sql v_aw_fact_by_quarter_2012
+select * from cube.aw_fact_by_quarter_2012
+```
+<DataTable data={v_aw_fact_by_quarter_2012} rows=all />
+## aw_quota_vs_actual_quarters_2012
+
+> **Проверяет:** Ф11 Г1/Г2 — план и факт по кварталам 2012 (mixed grain, паритет REF).
+> **Используется:** [План/факт](/quota-vs-actual).
+
+```sql
+SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, SUM(aw_quota_vs_actual.sales_amount_quota), SUM(aw_quota_vs_actual.sales_amount) FROM aw_quota_vs_actual WHERE aw_quota_vs_actual.calendar_year = 2012 GROUP BY 1, 2 ORDER BY aw_quota_vs_actual.calendar_quarter
+```
+
+```sql v_aw_quota_vs_actual_quarters_2012
+select * from cube.aw_quota_vs_actual_quarters_2012
+```
+<DataTable data={v_aw_quota_vs_actual_quarters_2012} rows=all />
+## aw_quota_vs_actual_months_2012_q1
+
+> **Проверяет:** Ф11 Г3 — месячный срез Q1 2012: план NULL на месяцах,
+> план-строка квартала с month NULL.
+> **Используется:** [План/факт](/quota-vs-actual).
+
+```sql
+SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, aw_quota_vs_actual.month_number, SUM(aw_quota_vs_actual.sales_amount_quota), SUM(aw_quota_vs_actual.sales_amount) FROM aw_quota_vs_actual WHERE aw_quota_vs_actual.calendar_year = 2012 AND aw_quota_vs_actual.calendar_quarter = 1 GROUP BY 1, 2, 3
+```
+
+```sql v_aw_quota_vs_actual_months_2012_q1
+select * from cube.aw_quota_vs_actual_months_2012_q1
+```
+<DataTable data={v_aw_quota_vs_actual_months_2012_q1} rows=all />

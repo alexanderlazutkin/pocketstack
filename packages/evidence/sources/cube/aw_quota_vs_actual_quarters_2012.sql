@@ -1,0 +1,1 @@
+SELECT aw_quota_vs_actual.calendar_year, aw_quota_vs_actual.calendar_quarter, SUM(aw_quota_vs_actual.sales_amount_quota), SUM(aw_quota_vs_actual.sales_amount) FROM aw_quota_vs_actual WHERE aw_quota_vs_actual.calendar_year = 2012 GROUP BY 1, 2 ORDER BY aw_quota_vs_actual.calendar_quarter
