@@ -91,9 +91,13 @@ select * from cube.aw_blend_months where year = ${inputs.year.value} order by mo
 ```
 
 ```sql months_mixed
-select * from cube.aw_quota_vs_actual_months
-where year = ${inputs.year.value} and country = '${inputs.country.value}'
-order by quarter, month nulls first
+select m.*, p.fact_share, p.cum_share
+from cube.aw_quota_vs_actual_months m
+left join cube.aw_pace_months p
+  on p.year = m.year and p.quarter = m.quarter
+ and p.month = m.month and p.country = m.country
+where m.year = ${inputs.year.value} and m.country = '${inputs.country.value}'
+order by m.quarter, m.month nulls first
 ```
 
 <Grid cols=2>
@@ -107,6 +111,8 @@ order by quarter, month nulls first
     <Column id=month_name title="Месяц" />
     <Column id=quota title="План (квота)" fmt=num0 align=right />
     <Column id=actual title="Факт (опт)" fmt=num0 align=right />
+    <Column id=fact_share title="Доля факт/квота кв." fmt=pct1 align=right />
+    <Column id=cum_share title="Кумулятив года" fmt=pct1 align=right contentType=colorscale scaleColor=business />
   </DataTable>
 </Grid>
 
@@ -120,38 +126,14 @@ blending — не использовать. Охват таблиц различ
 поэтому абсолютные величины планов различаются — сравнивайте структуру, а не
 абсолюты.*
 
-## Доля факта от плана (месяц → число, квартал → 100%, год → NULL)
-
-В blending эта метрика не выводится: на месячной оси у квоты нет корректного
-знаменателя (вся квота квартала «проваливается» в один месяц, см. блок выше).
-Считается отдельным предагрегированным кубом `aw_quota_pace` (сетка
-сотрудник×месяц, страна — сотрудника, как в примере 1):
-
-```sql pace_months
-select * from cube.aw_pace_months
-where year = ${inputs.year.value} and country = '${inputs.country.value}'
-order by month
-```
-
-```sql pace_levels_q
-select * from cube.aw_pace_quarters where year = ${inputs.year.value} order by quarter
-```
-
-<Grid cols=2>
-  <DataTable data={pace_months} rows=all>
-    <Column id=month_name title="Месяц" />
-    <Column id=fact_share title="Доля факт/квота кв." fmt=pct1 align=right />
-    <Column id=cum_share title="Кумулятив года" fmt=pct1 align=right />
-  </DataTable>
-  <DataTable data={pace_levels_q} rows=all>
-    <Column id=quarter title="Квартал" align=right />
-    <Column id=quota_share title="Доля от плана" fmt=pct0 align=right />
-  </DataTable>
-</Grid>
-
-Годовой уровень: доля = **NULL** (годового плана нет — grain плана квартал).
-Инварианты (golden `TestQuotaPace`): Σ долей месяцев квартала == выполнению
-квартала; кумулятив декабря == выполнению года.
+**Доли факта от плана** (правая таблица, куб `aw_quota_pace` — в blending
+не выводится, нет знаменателя на месячной оси): месяц = `факт_м / квота
+квартала` (Σ месяцев квартала == выполнение квартала), кумулятив года =
+`Σфакт янв..м / квота года` (к декабрю == выполнению года). Уровни выше:
+квартал = **100%** (квота целиком назначена кварталу), год = **NULL**
+(годового плана нет — grain плана квартал); поуровневые определения
+(SSAS Scope) в Cube 1.8 мерой не выражаются — §8.2.12. Инварианты —
+golden `TestQuotaPace`.
 
 <Details title="Как считается (принцип blending-механики Cube 1.8.13)">
   - View `plan_vs_fact_blend` объявляет **два факта и общие оси** (члены
