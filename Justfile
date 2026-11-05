@@ -114,6 +114,9 @@ bench-lake:
 serve-up:
     docker compose --profile serve up -d --wait
     docker compose exec evidence npm run sources
+    docker compose restart evidence
+    sleep 25
+    docker compose exec evidence npm run sources
 
 # Снять serving (куб+evidence), НЕ трогая ducklake-инфраструктуру
 serve-down:
